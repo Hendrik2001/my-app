@@ -114,7 +114,7 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
 
     // Function to hard reset the game
     const handleResetGame = async () => {
-        if (!window.confirm("ARE YOU SURE you want to reset the game? This will delete ALL projects and force ALL teams back to the setup screen.")) {
+        if (!window.confirm("ARE YOU SURE you want to reset the game? This will force ALL teams back to the setup screen. Projects will remain.")) {
             return;
         }
         setIsResetting(true);
@@ -135,12 +135,8 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
                 });
             }
 
-            // 2. Delete all projects in the 'projects' subcollection
-            const projectsRef = collection(db, gamePath, 'projects');
-            const projectsSnap = await getDocs(projectsRef);
-            projectsSnap.forEach(projectDoc => {
-                batch.delete(projectDoc.ref);
-            });
+            // 2. (REMOVED) Delete all projects in the 'projects' subcollection
+            // Projects now persist across resets.
 
             // 3. Reset the main game document
             const gameDocRef = doc(db, gamePath);
@@ -179,8 +175,13 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
             return;
         }
         
-        setIsLoading(true);
         const nextRound = gameState.currentRound + 1;
+        if (nextRound > 10) {
+            toast.error("Game Over! Max rounds reached (10).");
+            return;
+        }
+
+        setIsLoading(true);
         const currentProjects = projects.filter(p => p.round === gameState.currentRound);
 
         try {

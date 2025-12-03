@@ -10,8 +10,14 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
         capacityCost: 20,
         estimatedCost: 100000,
         hiddenMarketPrice: 150000,
+        round: currentRound || 1, // Default to current round
     });
     const [isLoading, setIsLoading] = useState(false);
+
+    // Update form round when currentRound changes (optional, but good UX)
+    React.useEffect(() => {
+        setForm(prev => ({ ...prev, round: currentRound || 1 }));
+    }, [currentRound]);
 
     const handleChange = (e) => {
         const { name, value, type } = e.target;
@@ -28,9 +34,9 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
             const projectsRef = collection(db, gamePath, 'projects');
             await addDoc(projectsRef, {
                 ...form,
-                round: currentRound, // Assigns project to the current round
+                // round is now taken from the form
             });
-            toast.success("New project added!");
+            toast.success(`New project added for Round ${form.round}!`);
             // Reset form
             setForm({
                 name: "New Project",
@@ -38,6 +44,7 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
                 capacityCost: 20,
                 estimatedCost: 100000,
                 hiddenMarketPrice: 150000,
+                round: currentRound || 1,
             });
         } catch (err) {
             console.error(err);
@@ -52,6 +59,7 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
         { name: 'capacityCost', type: 'number' },
         { name: 'estimatedCost', type: 'number' },
         { name: 'hiddenMarketPrice', type: 'number' },
+        { name: 'round', type: 'number', min: 1, max: 10 }, // Added round field
     ];
 
     return (
@@ -66,6 +74,8 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
                             name={f.name}
                             value={form[f.name]}
                             onChange={handleChange}
+                            min={f.min}
+                            max={f.max}
                             className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
                             required
                         />
@@ -77,7 +87,7 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
                         disabled={isLoading}
                         className="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 disabled:opacity-50"
                     >
-                        {isLoading ? "Creating..." : "Add Project for Round " + currentRound}
+                        {isLoading ? "Creating..." : `Add Project for Round ${form.round}`}
                     </button>
                 </div>
             </form>
