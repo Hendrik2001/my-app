@@ -8,7 +8,7 @@ import { AdminProjectList } from './AdminProjectList.jsx';
 export const AdminDashboard = ({ gamePath, gameState, allTeams, projects }) => {
 
     return (
-        <div className="min-h-screen bg-gray-100 p-4 md:p-8">
+        <div className="min-h-screen bg-gray-50 p-4 md:p-8">
             <div className="max-w-4xl mx-auto flex flex-col gap-6">
                 <AdminHeader gameState={gameState || { currentRound: 0, stage: 'No Game' }} />
 

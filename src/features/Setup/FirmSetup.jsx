@@ -71,19 +71,19 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
             return;
         }
         setIsSubmitting(true);
-        
+
         try {
             const teamDocRef = doc(db, gamePath, 'teams', teamId);
-            
+
             // Get data from the new structure
             const officeData = gameData.SETUP_DATA.office[office];
             const techData = gameData.SETUP_DATA.tech[tech];
             const salaryBoost = gameData.SETUP_DATA.salarySatisfactionBoost[salaryIndex];
-            
+
             let baseProd = 50 + (techData.prodBoost || 0);
             let baseEmpSat = 50 + (officeData.empBoost || 0) + (salaryBoost || 0);
             let baseClientSat = 50 + (officeData.clientBoost || 0);
-            
+
             await updateDoc(teamDocRef, {
                 money: remaining,
                 config: {
@@ -105,9 +105,9 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
                 },
                 needsSetup: false,
             });
-            
+
             toast.success("Your firm has been established!");
-            
+
         } catch (err) {
             console.error(err);
             toast.error(`Failed to save setup: ${err.message}`);
@@ -121,25 +121,25 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
         <div className="min-h-screen bg-gray-100 p-4 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <div className="bg-white p-6 rounded-xl shadow-2xl mb-6 text-center">
-                    <h1 className="text-3xl font-bold text-indigo-700">Establish Your Firm</h1>
-                    <p className="text-lg text-gray-600 mt-2">Welcome, {teamName}. Spend your starting capital to build your firm.</p>
+                    <h1 className="text-3xl font-bold text-evergreen">Establish Your Firm</h1>
+                    <p className="text-lg text-slate-muted mt-2">Welcome, {teamName}. Spend your starting capital to build your firm.</p>
                 </div>
-                
+
                 <div className="fixed bottom-4 right-4 z-10">
-                    <div className="p-6 bg-white rounded-xl shadow-2xl border-2 border-indigo-600">
-                        <div className="text-sm font-medium text-gray-500">Starting Capital</div>
+                    <div className="p-6 bg-white rounded-xl shadow-2xl border-2 border-evergreen">
+                        <div className="text-sm font-medium text-slate-muted">Starting Capital</div>
                         <div className="text-2xl font-bold text-green-600">€{gameData.STARTING_CAPITAL.toLocaleString()}</div>
-                        <div className="text-sm font-medium text-gray-500 mt-2">Total Cost</div>
+                        <div className="text-sm font-medium text-slate-muted mt-2">Total Cost</div>
                         <div className="text-xl font-bold text-red-600">- €{totalCost.toLocaleString()}</div>
                         <hr className="my-2" />
-                        <div className="text-sm font-medium text-gray-500">Remaining Cash</div>
+                        <div className="text-sm font-medium text-slate-muted">Remaining Cash</div>
                         <div className={`text-3xl font-bold ${remaining < 0 ? 'text-red-600' : 'text-green-700'}`}>
                             €{remaining.toLocaleString()}
                         </div>
                         <button
                             onClick={handleSubmit}
                             disabled={isSubmitting || remaining < 0}
-                            className="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition mt-4 disabled:opacity-50"
+                            className="w-full bg-evergreen text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-opacity-90 focus:outline-none focus:ring-2 focus:ring-evergreen focus:ring-offset-2 transition mt-4 disabled:opacity-50"
                         >
                             {isSubmitting ? "Saving..." : "Found Firm"}
                         </button>
@@ -172,9 +172,9 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
                                 <div key={type} className="flex items-center justify-between">
                                     <span className="text-lg font-medium capitalize text-gray-700">{type}s</span>
                                     <div className="flex items-center space-x-3">
-                                        <NumButton 
-                                            type="remove" 
-                                            onClick={() => handleEmployeeChange(type, -1)} 
+                                        <NumButton
+                                            type="remove"
+                                            onClick={() => handleEmployeeChange(type, -1)}
                                             disabled={employees[type] === 0 || (type === 'partners' && employees[type] === 1) || (type === 'juniors' && employees[type] === 1)}
                                         />
                                         <span className="text-xl font-bold w-12 text-center">{employees[type]}</span>

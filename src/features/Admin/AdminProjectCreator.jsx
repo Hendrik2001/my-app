@@ -85,7 +85,7 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 disabled:opacity-50"
+                        className="w-full bg-evergreen text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-opacity-90 disabled:opacity-50"
                     >
                         {isLoading ? "Creating..." : `Add Project for Round ${form.round}`}
                     </button>

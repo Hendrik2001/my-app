@@ -4,7 +4,7 @@ import gameData from '../../constants/gameData.js';
 
 const MetricDisplay = ({ name, value, colorClass }) => (
     <div className="bg-gray-50 p-4 rounded-lg text-center">
-        <div className="text-sm font-medium text-gray-600">{name}</div>
+        <div className="text-sm font-medium text-slate-muted">{name}</div>
         {/* THIS IS THE FIX:
           We change 'value.toFixed(0)' to '(value || 0).toFixed(0)'.
           If 'value' is undefined, it will be treated as 0.
@@ -16,7 +16,7 @@ const MetricDisplay = ({ name, value, colorClass }) => (
 export const MetricsPanel = ({ teamData }) => {
     // This line is good, but we add fallbacks below
     const metrics = teamData.metrics || {};
-    
+
     const chartData = [
         { name: 'Prod.', value: metrics.productivity || 0 },
         { name: 'Emp. Sat', value: metrics.employeeSatisfaction || 0 },
@@ -27,7 +27,7 @@ export const MetricsPanel = ({ teamData }) => {
     return (
         <div className="bg-white p-6 rounded-xl shadow-lg">
             <h2 className="text-xl font-semibold mb-4 border-b pb-2">Firm Metrics</h2>
-            
+
             <div className="mb-6">
                 <div className="bg-green-50 p-4 rounded-lg">
                     <div className="text-sm font-medium text-green-800">Available Cash</div>
@@ -52,7 +52,7 @@ export const MetricsPanel = ({ teamData }) => {
                         <XAxis dataKey="name" stroke="#6B7280" fontSize={12} />
                         <YAxis stroke="#6B7280" fontSize={12} />
                         <Tooltip />
-                        <Bar dataKey="value" fill="#4F46E5" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="value" fill="#003B3C" radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ResponsiveContainer>
             </div>

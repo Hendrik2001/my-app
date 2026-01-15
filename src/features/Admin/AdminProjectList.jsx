@@ -62,7 +62,7 @@ export const AdminProjectList = ({ projects, gamePath }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Round</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-muted uppercase tracking-wider">Round</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Complexity</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
@@ -124,7 +124,7 @@ export const AdminProjectList = ({ projects, gamePath }) => {
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{project.complexity}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">€{project.estimatedCost?.toLocaleString()}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                                            <button onClick={() => handleEditClick(project)} className="text-indigo-600 hover:text-indigo-900">Edit</button>
+                                            <button onClick={() => handleEditClick(project)} className="text-evergreen hover:text-green-900">Edit</button>
                                             <button onClick={() => handleDelete(project.id)} className="text-red-600 hover:text-red-900">Delete</button>
                                         </td>
                                     </>

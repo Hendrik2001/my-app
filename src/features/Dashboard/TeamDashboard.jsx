@@ -35,7 +35,7 @@ export const TeamDashboard = ({ teamPath, teamData, gameState, projects, logs })
     const fullGamePath = `games/${gameId}`;
 
     return (
-        <div className="min-h-screen bg-gray-100 p-4 md:p-8">
+        <div className="min-h-screen bg-gray-50 p-4 md:p-8">
             <RoundResultModal
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
@@ -52,7 +52,7 @@ export const TeamDashboard = ({ teamPath, teamData, gameState, projects, logs })
                 <div className="mb-4 flex justify-end">
                     <button
                         onClick={() => setShowModal(true)}
-                        className="text-indigo-600 font-semibold hover:underline"
+                        className="text-evergreen font-semibold hover:underline"
                     >
                         Reopen Strategy & Results
                     </button>

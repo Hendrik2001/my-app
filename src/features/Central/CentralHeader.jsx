@@ -15,21 +15,21 @@ export const CentralHeader = ({ gameState }) => {
     return (
         <header className="bg-white shadow p-4 flex justify-between items-center">
             <div className="flex items-center gap-3">
-                <Briefcase size={32} className="text-indigo-600" />
-                <h1 className="text-3xl font-bold text-indigo-700">Law Firm Sim - Leaderboard</h1>
+                <Briefcase size={32} className="text-evergreen" />
+                <h1 className="text-3xl font-bold text-evergreen">The Value Collective</h1>
             </div>
             <div className="flex items-center gap-6 text-right">
-                 <div className="p-4 bg-yellow-100 text-yellow-800 rounded-lg">
+                <div className="p-4 bg-yellow-100 text-yellow-800 rounded-lg">
                     <p className="text-sm font-bold">CURRENT EVENT</p>
                     <p className="text-lg">None</p>
                 </div>
                 <div>
-                    <div className="text-sm text-gray-500">Round</div>
-                    <div className="text-3xl font-bold text-indigo-600">{gameState.currentRound}</div>
+                    <div className="text-sm text-slate-muted">Round</div>
+                    <div className="text-3xl font-bold text-evergreen">{gameState.currentRound}</div>
                 </div>
                 <div>
-                    <div className="text-sm text-gray-500">Stage</div>
-                    <div className="text-3xl font-bold text-indigo-600 capitalize">{gameState.stage}</div>
+                    <div className="text-sm text-slate-muted">Stage</div>
+                    <div className="text-3xl font-bold text-evergreen capitalize">{gameState.stage}</div>
                 </div>
                 {/* 3. Add the logout button */}
                 <button

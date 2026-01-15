@@ -36,7 +36,7 @@ export const ProjectPanel = ({ teamPath, teamData, gameState, projects, gamePath
             toast.error("Your bid must be higher than the estimated cost.");
             return;
         }
-        
+
         // Ensure gamePath is valid before proceeding
         if (!gamePath) {
             toast.error("Game path is undefined. Please try again.");
@@ -79,18 +79,18 @@ export const ProjectPanel = ({ teamPath, teamData, gameState, projects, gamePath
             )}
             <div className="mb-4 p-4 bg-gray-50 rounded-lg flex justify-between items-center">
                 <span className="text-lg font-medium text-gray-700">Team Capacity:</span>
-                <span className={`text-2xl font-bold ${capacityUsed > teamCapacity ? 'text-red-600' : 'text-blue-600'}`}>
+                <span className={`text-2xl font-bold ${capacityUsed > teamCapacity ? 'text-red-600' : 'text-evergreen'}`}>
                     {capacityUsed} / {teamCapacity}
                 </span>
             </div>
-            
+
             <div className="space-y-4 max-h-[600px] overflow-y-auto">
                 {projects.map(project => {
                     const hasBid = !!teamData.bids?.[project.id];
                     return (
                         <div key={project.id} className={`p-4 rounded-lg border ${hasBid ? 'bg-gray-100' : 'bg-white'}`}>
-                            <h3 className="text-lg font-semibold text-indigo-700">{project.name}</h3>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-600 mt-2">
+                            <h3 className="text-lg font-semibold text-evergreen">{project.name}</h3>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-slate-muted mt-2">
                                 <p>Complexity: <span className="font-medium text-gray-800">{project.complexity}</span></p>
                                 <p>Capacity Cost: <span className="font-medium text-gray-800">{project.capacityCost}</span></p>
                                 <p>Est. Cost: <span className="font-medium text-green-700">€{project.estimatedCost.toLocaleString()}</span></p>
@@ -108,7 +108,7 @@ export const ProjectPanel = ({ teamPath, teamData, gameState, projects, gamePath
                                 <button
                                     onClick={() => handlePlaceBid(project)}
                                     disabled={isLocked || hasBid}
-                                    className="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                                    className="bg-evergreen text-white font-semibold px-4 py-2 rounded-lg hover:bg-opacity-90 disabled:opacity-50"
                                 >
                                     {hasBid ? "Bid Placed" : "Place Bid"}
                                 </button>

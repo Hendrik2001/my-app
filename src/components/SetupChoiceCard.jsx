@@ -11,15 +11,15 @@ export const SetupChoiceCard = ({ title, options, selectedId, onSelect }) => (
                         key={opt.id}
                         type="button"
                         onClick={() => onSelect(opt.id)}
-                        className={`w-full text-left p-4 rounded-lg border-2 transition ${isSelected ? 'border-indigo-600 bg-indigo-50 shadow-md' : 'border-gray-200 hover:border-indigo-400'}`}
+                        className={`w-full text-left p-4 rounded-lg border-2 transition ${isSelected ? 'border-evergreen bg-green-50 shadow-md' : 'border-gray-200 hover:border-evergreen'}`}
                     >
                         <div className="flex justify-between items-center">
-                            <span className={`font-semibold ${isSelected ? 'text-indigo-700' : 'text-gray-700'}`}>{opt.name}</span>
-                            <span className={`font-medium ${isSelected ? 'text-indigo-600' : 'text-gray-600'}`}>
+                            <span className={`font-semibold ${isSelected ? 'text-evergreen' : 'text-gray-700'}`}>{opt.name}</span>
+                            <span className={`font-medium ${isSelected ? 'text-evergreen' : 'text-slate-muted'}`}>
                                 €{opt.cost.toLocaleString()}
                             </span>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">{opt.effect}</p>
+                        <p className="text-sm text-slate-muted mt-1">{opt.effect}</p>
                     </button>
                 );
             })}

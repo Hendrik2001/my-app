@@ -10,7 +10,7 @@ export const LogPanel = ({ logs }) => (
             {logs.map(log => (
                 <div key={log.id} className="p-3 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-700">
-                        <span className="font-bold text-indigo-600">Round {log.round}: </span>
+                        <span className="font-bold text-evergreen">Round {log.round}: </span>
                         {log.message}
                     </p>
                 </div>
