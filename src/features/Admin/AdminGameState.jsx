@@ -1,83 +1,134 @@
 import React, { useState } from 'react';
 import { db } from '../../firebase/firebase.js';
 // Added setDoc for creating/resetting game document
-import { doc, writeBatch, collection, getDocs, updateDoc, setDoc } from 'firebase/firestore'; 
+import { doc, writeBatch, collection, getDocs, updateDoc, setDoc } from 'firebase/firestore';
 import gameData from '../../constants/gameData.js';
 import { toast } from 'sonner';
-
+// First, add these imports at the top of AdminGameState.jsx:
+import {
+    calculateTotalCapacity,
+    calculateActualCompetency,
+    calculateProjectCost,
+    calculateProjectSuccessChance,
+    applyInvestmentEffects,
+    calculateFixedCosts
+} from '../../utils/gameCalculations.js';
 // Helper function to calculate results (this is the core engine)
-const calculateRoundResults = (team, allBidsForTeam, projects, gameState, gameConfig) => {
+function calculateRoundResults(team, teamBids, currentProjects, gameState, setupData) {
+    const { FORMULA_CONSTANTS } = gameData;
     const logs = [];
     let profit = 0;
-    const { employees, config } = team;
-    const salaryMultiplier = gameConfig.salaryMultipliers[config.salaryIndex];
-    let fixedCosts = 0;
-    let totalCapacity = 0;
-    let totalCompetency = 0;
-    for (const [type, count] of Object.entries(employees)) {
-        const stats = gameConfig.employees[type];
-        fixedCosts += stats.baseSalary * salaryMultiplier * count;
-        totalCapacity += stats.capacity * count;
-        totalCompetency += stats.competency * count;
-    }
-    const officeCost = gameConfig.office[config.office].roundCost;
-    fixedCosts += officeCost;
+
+    // Calculate fixed costs
+    const fixedCosts = calculateFixedCosts(team);
     profit -= fixedCosts;
-    logs.push({ message: `Paid fixed costs (salaries, office): €${fixedCosts.toLocaleString()}` });
-    const { investments } = team;
-    let newMetrics = { ...team.metrics };
-    if (investments.ai > 0) {
-        newMetrics.productivity += (investments.ai / 50000);
-        profit -= investments.ai;
-        logs.push({ message: `Invested €${investments.ai.toLocaleString()} in AI & Tech.` });
-    }
-    if (investments.client > 0) {
-        newMetrics.clientSatisfaction += (investments.client / 25000);
-        profit -= investments.client;
-        logs.push({ message: `Invested €${investments.client.toLocaleString()} in Client Relations.` });
-    }
-    if (investments.dividends > 0) {
-        newMetrics.partnerSatisfaction += (investments.dividends / 100000);
-        profit -= investments.dividends;
-        logs.push({ message: `Paid €${investments.dividends.toLocaleString()} in dividends.` });
-    }
+    logs.push({ message: `Fixed costs: €${fixedCosts.toLocaleString()}` });
+
+    // Pay investments
+    const totalInvestments = (team.investments?.ai || 0) +
+        (team.investments?.client || 0) +
+        (team.investments?.dividends || 0);
+    profit -= totalInvestments;
+    logs.push({ message: `Investments: €${totalInvestments.toLocaleString()}` });
+
+    // Apply investment effects to metrics
+    let newMetrics = applyInvestmentEffects(team.metrics || {}, team.investments || {});
+
+    // Calculate capacity usage
+    const totalCapacity = calculateTotalCapacity(team);
     let capacityUsed = 0;
-    let projectsWon = 0;
-    for (const bid of allBidsForTeam) {
-        const project = projects.find(p => p.id === bid.projectId);
-        if (!project) continue;
-        const bidIsCompetitive = bid.amount <= project.hiddenMarketPrice;
-        const winChance = team.metrics.clientSatisfaction / 100;
-        if (bidIsCompetitive && Math.random() < winChance) {
-            projectsWon++;
+
+    teamBids.forEach(bid => {
+        const project = currentProjects.find(p => p.id === bid.projectId);
+        if (project) {
             capacityUsed += project.capacityCost;
-            const projectProfit = bid.amount - project.estimatedCost;
+        }
+    });
+
+    // Check for overwork
+    let burnoutPenalty = 0;
+    const { OVERWORK_THRESHOLD, BURNOUT_EMP_SAT_PENALTY, BURNOUT_QUALITY_PENALTY } = FORMULA_CONSTANTS;
+
+    if (capacityUsed > totalCapacity * OVERWORK_THRESHOLD) {
+        const overloadPct = (capacityUsed - totalCapacity) / totalCapacity;
+        const empSatLoss = (overloadPct / 0.1) * BURNOUT_EMP_SAT_PENALTY;
+        burnoutPenalty = (overloadPct / 0.1) * BURNOUT_QUALITY_PENALTY;
+
+        newMetrics.employeeSatisfaction = (newMetrics.employeeSatisfaction || 50) - empSatLoss;
+        logs.push({
+            message: `⚠️ Overworked! ${capacityUsed}/${totalCapacity} capacity. Emp Sat -${empSatLoss.toFixed(1)}, Quality -${(burnoutPenalty * 100).toFixed(0)}%`
+        });
+    } else {
+        logs.push({ message: `Capacity: ${capacityUsed}/${totalCapacity} ✓` });
+    }
+
+    // Execute projects
+    let projectsSucceeded = 0;
+    let projectsFailed = 0;
+
+    teamBids.forEach(bid => {
+        const project = currentProjects.find(p => p.id === bid.projectId);
+        if (!project) return;
+
+        const cost = calculateProjectCost(team, project);
+        const successChance = calculateProjectSuccessChance(team, project, burnoutPenalty);
+        const success = Math.random() < successChance;
+
+        // Fix: Use bid.amount if bid.bidPrice is undefined (legacy/new naming issue)
+        const bidAmount = bid.bidPrice || bid.amount || 0;
+
+        if (success) {
+            const projectProfit = bidAmount - cost;
             profit += projectProfit;
-            logs.push({ message: `✅ Won project "${project.name}"! Profit: €${projectProfit.toLocaleString()}` });
+            newMetrics.clientSatisfaction = (newMetrics.clientSatisfaction || 50) + 5;
+            projectsSucceeded++;
+            logs.push({
+                message: `✓ Completed "${project.name}" for €${bidAmount.toLocaleString()} (cost: €${cost.toLocaleString()}, profit: €${projectProfit.toLocaleString()})`
+            });
         } else {
-            logs.push({ message: `❌ Lost bid for "${project.name}".` });
+            const penalty = Math.floor(cost * 0.5);
+            profit -= penalty;
+            newMetrics.clientSatisfaction = (newMetrics.clientSatisfaction || 50) - 10;
+            projectsFailed++;
+            logs.push({
+                message: `✗ Failed "${project.name}" - Quality issues. Paid €${penalty.toLocaleString()} penalty (${(successChance * 100).toFixed(0)}% success chance)`
+            });
+        }
+    });
+
+    // Grunt work if no projects won
+    if (teamBids.length === 0) {
+        const actualComp = calculateActualCompetency(team);
+        const gruntProfit = Math.floor(actualComp * 100 - fixedCosts);
+        if (gruntProfit > 0) {
+            profit += gruntProfit;
+            newMetrics.partnerSatisfaction = (newMetrics.partnerSatisfaction || 50) - 5;
+            logs.push({ message: `No projects won. Did grunt work for €${gruntProfit.toLocaleString()} (partners unhappy)` });
+        } else {
+            logs.push({ message: `No projects won and no grunt work available.` });
         }
     }
-    if (projectsWon === 0) {
-        newMetrics.partnerSatisfaction -= 5;
-        logs.push({ message: "No projects won. Partners are unhappy." });
+
+    // Partner satisfaction based on profit
+    if (profit > 100000) {
+        const boost = profit / 100000;
+        newMetrics.partnerSatisfaction = (newMetrics.partnerSatisfaction || 50) + boost;
+    } else if (profit < 0) {
+        newMetrics.partnerSatisfaction = (newMetrics.partnerSatisfaction || 50) - 10;
     }
-    if (capacityUsed > totalCapacity) {
-        const overload = (capacityUsed / totalCapacity) * 10;
-        newMetrics.employeeSatisfaction -= overload;
-        logs.push({ message: `Team is overworked! (${capacityUsed}/${totalCapacity} capacity). Employee Sat. decreased.` });
-    } else {
-        newMetrics.employeeSatisfaction += 2;
-    }
-    if (profit < 0) {
-        newMetrics.partnerSatisfaction -= 5;
-    } else if (profit > 100000) {
-        newMetrics.partnerSatisfaction += (profit / 100000);
-    }
+
+    // Clamp all metrics between 10 and 100
     Object.keys(newMetrics).forEach(key => {
-        newMetrics[key] = Math.max(10, Math.min(newMetrics[key], 100));
+        newMetrics[key] = Math.max(10, Math.min(100, newMetrics[key]));
     });
+
     const finalMoney = team.money + profit;
+
+    // Summary log
+    logs.push({
+        message: `Round Summary: Profit €${profit.toLocaleString()}, Cash: €${finalMoney.toLocaleString()}`
+    });
+
     return {
         newMoney: finalMoney,
         newMetrics: newMetrics,
@@ -85,8 +136,10 @@ const calculateRoundResults = (team, allBidsForTeam, projects, gameState, gameCo
         logs: logs,
         newInvestments: { ai: 0, client: 0, dividends: 0 },
         newBids: {},
+        projectsSucceeded,
+        projectsFailed
     };
-};
+}
 
 export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
     const [isLoading, setIsLoading] = useState(false);
@@ -100,9 +153,9 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
         setIsLoading(true);
         try {
             const gameDocRef = doc(db, gamePath);
-            await setDoc(gameDocRef, { 
-                currentRound: 1, 
-                stage: 'investment' 
+            await setDoc(gameDocRef, {
+                currentRound: 1,
+                stage: 'investment'
             });
             toast.success("Game Started! Set to Round 1, Investment Phase.");
         } catch (err) {
@@ -174,7 +227,7 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
         if (!window.confirm("Are you sure you want to advance to the next round? This will process all team results.")) {
             return;
         }
-        
+
         const nextRound = gameState.currentRound + 1;
         if (nextRound > 10) {
             toast.error("Game Over! Max rounds reached (10).");
@@ -186,7 +239,7 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
 
         try {
             const batch = writeBatch(db);
-            
+
             const allBids = [];
             for (const project of currentProjects) {
                 const bidsRef = collection(db, gamePath, 'projects', project.id, 'bids');
@@ -203,7 +256,7 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
             for (const team of allTeams) {
                 const teamBids = allBids.filter(b => b.teamId === team.id);
                 const teamRef = doc(db, gamePath, 'teams', team.id);
-                
+
                 const results = calculateRoundResults(
                     team,
                     teamBids,
@@ -290,7 +343,7 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
                     {isLoading ? "Processing..." : `Advance to Round ${gameState.currentRound + 1}`}
                 </button>
             </div>
-            
+
             {/* --- NEW RESET BUTTON SECTION --- */}
             <div className="mt-6 border-t pt-6">
                 <button
