@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, setLogLevel } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 /* global __firebase_config, __initial_auth_token */
 
@@ -10,20 +10,20 @@ import { getFirestore, setLogLevel } from 'firebase/firestore';
 
 /* eslint-disable no-undef */
 const firebaseConfig = typeof __firebase_config !== 'undefined'
-  ? JSON.parse(__firebase_config)
-  : {
-      // PASTE YOUR LOCAL CONFIG HERE
-      apiKey: "AIzaSyDdtWdjAZJXEuXfEiQTUt89HV0uGvN92To",
-      authDomain: "law-firm-simulation.firebaseapp.com",
-      projectId: "law-firm-simulation",
-      storageBucket: "law-firm-simulation.firebasestorage.app",
-      messagingSenderId: "55201403119",
-      appId: "1:55201403119:web:146a1918849ffc0b188b1a"
+    ? JSON.parse(__firebase_config)
+    : {
+        // PASTE YOUR LOCAL CONFIG HERE
+        apiKey: "AIzaSyDdtWdjAZJXEuXfEiQTUt89HV0uGvN92To",
+        authDomain: "law-firm-simulation.firebaseapp.com",
+        projectId: "law-firm-simulation",
+        storageBucket: "law-firm-simulation.firebasestorage.app",
+        messagingSenderId: "55201403119",
+        appId: "1:55201403119:web:146a1918849ffc0b188b1a"
     };
 
 const initialAuthToken = typeof __initial_auth_token !== 'undefined'
-  ? __initial_auth_token
-  : null;
+    ? __initial_auth_token
+    : null;
 /* eslint-enable no-undef */
 
 // Initialize Firebase
@@ -31,8 +31,9 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Enable Firestore debug logging
-setLogLevel('Debug');
+// Debug logging removed for production — uncomment for development:
+// import { setLogLevel } from 'firebase/firestore';
+// setLogLevel('Debug');
 
 // --- Initial Auth ---
 // Handle signing in when the app first loads

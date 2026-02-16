@@ -1,189 +1,162 @@
 import React, { useState, useMemo } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase.js';
-// Import the default object
 import gameData from '../../constants/gameData.js';
+import { getProductivityDiscount, calculateGruntWorkRate } from '../../utils/gameCalculations.js';
 import { NumButton } from '../../components/NumButton.jsx';
 import { SetupChoiceCard } from '../../components/SetupChoiceCard.jsx';
 import { toast } from 'sonner';
 
-// Use the new object-based data for choices
-const officeOptions = Object.keys(gameData.SETUP_DATA.office).map(key => ({
-    id: key,
-    ...gameData.SETUP_DATA.office[key]
-}));
-
-const techOptions = Object.keys(gameData.SETUP_DATA.tech).map(key => ({
-    id: key,
-    ...gameData.SETUP_DATA.tech[key]
-}));
-
-// Create salary options from the arrays in gameData
-const salaryOptions = gameData.SETUP_DATA.salaryMultipliers.map((mult, index) => ({
-    id: index, // Use index 0, 1, or 2 as the ID
-    name: `x${mult} (Satisfaction ${gameData.SETUP_DATA.salarySatisfactionBoost[index] > 0 ? '+' : ''}${gameData.SETUP_DATA.salarySatisfactionBoost[index]})`,
-    cost: 0, // Cost is a multiplier, not a flat fee
-    effect: `x${mult} base salary, ${gameData.SETUP_DATA.salarySatisfactionBoost[index]} Emp. Sat.`
-}));
-
+const officeOptions = Object.keys(gameData.SETUP_DATA.office).map(key => ({ id: key, ...gameData.SETUP_DATA.office[key] }));
+const techOptions = Object.keys(gameData.SETUP_DATA.tech).map(key => ({ id: key, ...gameData.SETUP_DATA.tech[key] }));
 
 export const FirmSetup = ({ teamId, teamName, gamePath }) => {
-    // Note: State now uses the object keys from your gameData
     const [office, setOffice] = useState('basic');
     const [tech, setTech] = useState('basic');
-    const [salaryIndex, setSalaryIndex] = useState(1); // 1 is 'Market' (index 1 in the array)
-    const [employees, setEmployees] = useState({
-        juniors: 1,
-        mediors: 0,
-        seniors: 0,
-        partners: 1,
-    });
+    const [employees, setEmployees] = useState({ juniors: 1, mediors: 0, seniors: 0, partners: 1 });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const { totalCost, remaining } = useMemo(() => {
-        // Use the new data structure (e.g., gameData.SETUP_DATA.office[office].cost)
-        const officeCost = gameData.SETUP_DATA.office[office]?.cost || 0;
-        const techCost = gameData.SETUP_DATA.tech[tech]?.cost || 0;
-
-        let employeeCost = 0;
+    const computed = useMemo(() => {
+        const od = gameData.SETUP_DATA.office[office];
+        const td = gameData.SETUP_DATA.tech[tech];
+        let empCost = 0, capacity = 0, competency = 0;
         for (const [type, count] of Object.entries(employees)) {
-            employeeCost += (gameData.SETUP_DATA.employees[type]?.hireCost || 0) * count;
+            const d = gameData.SETUP_DATA.employees[type];
+            empCost += (d?.hireCost || 0) * count;
+            capacity += (d?.capacity || 0) * count;
+            competency += (d?.competency || 0) * count;
         }
-
-        const totalCost = officeCost + techCost + employeeCost;
-        // Use the new import path for STARTING_CAPITAL
+        const totalCost = (od?.cost || 0) + (td?.cost || 0) + empCost;
         const remaining = gameData.STARTING_CAPITAL - totalCost;
-        return { totalCost, remaining };
+        const productivity = 0 + (td?.prodBoost || 0);
+        const clientSat = 0 + (od?.clientBoost || 0);
+        const discount = getProductivityDiscount(productivity);
+        const gruntRate = calculateGruntWorkRate(productivity);
+        return { totalCost, remaining, capacity, competency, productivity, clientSat, discount, gruntRate };
     }, [office, tech, employees]);
 
     const handleEmployeeChange = (type, amount) => {
         setEmployees(prev => {
-            const newVal = Math.max(0, (prev[type] || 0) + amount);
-            if (type === 'partners' && newVal < 1) return prev;
-            if (type === 'juniors' && newVal < 1) return prev;
-            return { ...prev, [type]: newVal };
+            const d = gameData.SETUP_DATA.employees[type];
+            const nv = Math.max(0, (prev[type] || 0) + amount);
+            if (d.minAtSetup && nv < d.minAtSetup) return prev;
+            if (d.maxAtSetup !== undefined && nv > d.maxAtSetup) return prev;
+            return { ...prev, [type]: nv };
         });
     };
 
     const handleSubmit = async () => {
-        if (remaining < 0) {
-            toast.error("You cannot spend more than your starting capital!");
-            return;
-        }
+        if (computed.remaining < 0) { toast.error("Over budget."); return; }
         setIsSubmitting(true);
-
         try {
-            const teamDocRef = doc(db, gamePath, 'teams', teamId);
-
-            // Get data from the new structure
-            const officeData = gameData.SETUP_DATA.office[office];
-            const techData = gameData.SETUP_DATA.tech[tech];
-            const salaryBoost = gameData.SETUP_DATA.salarySatisfactionBoost[salaryIndex];
-
-            let baseProd = 50 + (techData.prodBoost || 0);
-            let baseEmpSat = 50 + (officeData.empBoost || 0) + (salaryBoost || 0);
-            let baseClientSat = 50 + (officeData.clientBoost || 0);
-
-            await updateDoc(teamDocRef, {
-                money: remaining,
-                config: {
-                    office: office,
-                    tech: tech,
-                    salaryIndex: salaryIndex, // Store the index (0, 1, or 2)
-                },
-                employees: employees,
-                metrics: {
-                    productivity: baseProd,
-                    employeeSatisfaction: baseEmpSat,
-                    clientSatisfaction: baseClientSat,
-                    partnerSatisfaction: 50,
-                },
-                investments: {
-                    ai: 0,
-                    client: 0,
-                    dividends: 0,
-                },
-                needsSetup: false,
+            const od = gameData.SETUP_DATA.office[office];
+            const td = gameData.SETUP_DATA.tech[tech];
+            await updateDoc(doc(db, gamePath, 'teams', teamId), {
+                money: computed.remaining, config: { office, tech }, employees,
+                metrics: { productivity: computed.productivity, clientSatisfaction: computed.clientSat },
+                upgrades: { ai: 0, client: 0 },
+                investments: {}, bids: {},
+                needsSetup: false, ready: false,
             });
-
-            toast.success("Your firm has been established!");
-
-        } catch (err) {
-            console.error(err);
-            toast.error(`Failed to save setup: ${err.message}`);
-            setIsSubmitting(false);
-        }
+            toast.success("Firm established.");
+        } catch (err) { toast.error(`Failed: ${err.message}`); setIsSubmitting(false); }
     };
 
-    const employeeTypes = ['juniors', 'mediors', 'seniors', 'partners'];
+    const employeeTypes = ['partners', 'seniors', 'mediors', 'juniors'];
 
     return (
-        <div className="min-h-screen bg-gray-100 p-4 md:p-8">
-            <div className="max-w-4xl mx-auto">
-                <div className="bg-white p-6 rounded-xl shadow-2xl mb-6 text-center">
-                    <h1 className="text-3xl font-bold text-evergreen">Establish Your Firm</h1>
-                    <p className="text-lg text-slate-muted mt-2">Welcome, {teamName}. Spend your starting capital to build your firm.</p>
+        <div className="min-h-screen bg-stone-50 p-4 md:p-8">
+            <div className="max-w-5xl mx-auto">
+                <div className="bg-emerald-900 text-white p-8 mb-6">
+                    <h1 className="text-3xl font-bold tracking-tight" style={{ fontFamily: 'Georgia, serif' }}>Establish Your Firm</h1>
+                    <p className="text-emerald-200 mt-2">Welcome, <span className="text-white font-semibold">{teamName}</span>. Starting budget: {gameData.STARTING_CAPITAL.toLocaleString()}.</p>
+                    <div className="mt-4 p-3 bg-emerald-800 border border-emerald-700 text-sm text-emerald-100 space-y-1">
+                        <p><strong>How you earn money:</strong> Win project bids, then execute them. Revenue = your bid price minus execution cost.</p>
+                        <p><strong>Grunt work:</strong> Any team capacity not used on projects earns passive income. Currently {computed.gruntRate.toLocaleString()} per unused capacity point per round. Productivity increases this rate.</p>
+                        <p><strong>Two key metrics:</strong> Productivity (reduces costs, boosts grunt work) and Client Satisfaction (helps you win bids at higher prices). Both start at 0 and grow through upgrades and successful work.</p>
+                    </div>
                 </div>
 
+                {/* Floating summary */}
                 <div className="fixed bottom-4 right-4 z-10">
-                    <div className="p-6 bg-white rounded-xl shadow-2xl border-2 border-evergreen">
-                        <div className="text-sm font-medium text-slate-muted">Starting Capital</div>
-                        <div className="text-2xl font-bold text-green-600">€{gameData.STARTING_CAPITAL.toLocaleString()}</div>
-                        <div className="text-sm font-medium text-slate-muted mt-2">Total Cost</div>
-                        <div className="text-xl font-bold text-red-600">- €{totalCost.toLocaleString()}</div>
-                        <hr className="my-2" />
-                        <div className="text-sm font-medium text-slate-muted">Remaining Cash</div>
-                        <div className={`text-3xl font-bold ${remaining < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                            €{remaining.toLocaleString()}
+                    <div className="p-5 bg-white border-2 border-emerald-900 shadow-xl w-72">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Budget</div>
+                        <div className="text-lg font-mono text-gray-900">{gameData.STARTING_CAPITAL.toLocaleString()}</div>
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-2">Setup Cost</div>
+                        <div className="text-lg font-mono text-red-700">-{computed.totalCost.toLocaleString()}</div>
+                        <div className="border-t border-gray-300 my-2"></div>
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Remaining</div>
+                        <div className={`text-2xl font-mono font-bold ${computed.remaining < 0 ? 'text-red-600' : 'text-emerald-800'}`}>
+                            {computed.remaining.toLocaleString()}
                         </div>
-                        <button
-                            onClick={handleSubmit}
-                            disabled={isSubmitting || remaining < 0}
-                            className="w-full bg-evergreen text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-opacity-90 focus:outline-none focus:ring-2 focus:ring-evergreen focus:ring-offset-2 transition mt-4 disabled:opacity-50"
-                        >
-                            {isSubmitting ? "Saving..." : "Found Firm"}
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-stone-100 p-2 text-center border border-stone-200">
+                                <div className="text-gray-500 uppercase" style={{ fontSize: '10px' }}>Capacity</div>
+                                <div className="font-bold font-mono text-gray-900">{computed.capacity}</div>
+                            </div>
+                            <div className="bg-stone-100 p-2 text-center border border-stone-200">
+                                <div className="text-gray-500 uppercase" style={{ fontSize: '10px' }}>Competency</div>
+                                <div className="font-bold font-mono text-gray-900">{computed.competency}</div>
+                            </div>
+                            <div className="bg-amber-50 p-2 text-center border border-amber-200">
+                                <div className="text-amber-700 uppercase" style={{ fontSize: '10px' }}>Productivity</div>
+                                <div className="font-bold font-mono text-amber-900">{computed.productivity}</div>
+                                {computed.discount > 0 && <div className="text-amber-600" style={{ fontSize: '10px' }}>-{computed.discount}% costs</div>}
+                            </div>
+                            <div className="bg-blue-50 p-2 text-center border border-blue-200">
+                                <div className="text-blue-700 uppercase" style={{ fontSize: '10px' }}>Client Sat.</div>
+                                <div className="font-bold font-mono text-blue-900">{computed.clientSat}</div>
+                            </div>
+                        </div>
+                        <div className="mt-2 text-xs text-gray-500 text-center">
+                            Grunt work: ~{(computed.capacity * computed.gruntRate).toLocaleString()}/round if idle
+                        </div>
+
+                        <button onClick={handleSubmit} disabled={isSubmitting || computed.remaining < 0}
+                            className="w-full bg-emerald-900 text-white font-semibold py-3 px-6 mt-4 hover:bg-emerald-800 transition disabled:opacity-40 tracking-wide">
+                            {isSubmitting ? "Saving..." : "ESTABLISH FIRM"}
                         </button>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-24">
-                    <SetupChoiceCard
-                        title="1. Choose Your Office"
-                        options={officeOptions}
-                        selectedId={office}
-                        onSelect={setOffice}
-                    />
-                    <SetupChoiceCard
-                        title="2. Choose Your Tech Stack"
-                        options={techOptions}
-                        selectedId={tech}
-                        onSelect={setTech}
-                    />
-                    <SetupChoiceCard
-                        title="3. Set Salary Level"
-                        options={salaryOptions}
-                        selectedId={salaryIndex}
-                        onSelect={setSalaryIndex}
-                    />
-                    <div className="bg-white p-6 rounded-xl shadow-lg">
-                        <h3 className="text-xl font-semibold mb-4 text-gray-800">4. Hire Your Team</h3>
-                        <div className="space-y-4">
-                            {employeeTypes.map(type => (
-                                <div key={type} className="flex items-center justify-between">
-                                    <span className="text-lg font-medium capitalize text-gray-700">{type}s</span>
-                                    <div className="flex items-center space-x-3">
-                                        <NumButton
-                                            type="remove"
-                                            onClick={() => handleEmployeeChange(type, -1)}
-                                            disabled={employees[type] === 0 || (type === 'partners' && employees[type] === 1) || (type === 'juniors' && employees[type] === 1)}
-                                        />
-                                        <span className="text-xl font-bold w-12 text-center">{employees[type]}</span>
-                                        <NumButton type="add" onClick={() => handleEmployeeChange(type, 1)} />
+                    <SetupChoiceCard title="Office" options={officeOptions} selectedId={office} onSelect={setOffice} />
+                    <SetupChoiceCard title="Technology" options={techOptions} selectedId={tech} onSelect={setTech} />
+
+                    <div className="bg-white p-6 border border-gray-200 md:col-span-2">
+                        <h3 className="text-lg font-semibold mb-4 text-gray-900 tracking-tight" style={{ fontFamily: 'Georgia, serif' }}>Hire Your Team</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {employeeTypes.map(type => {
+                                const d = gameData.SETUP_DATA.employees[type];
+                                const atCap = d.maxAtSetup !== undefined && employees[type] >= d.maxAtSetup;
+                                const atMin = (d.minAtSetup && employees[type] <= d.minAtSetup) || employees[type] === 0;
+                                return (
+                                    <div key={type} className={`p-4 border-2 ${atCap ? 'border-amber-400 bg-amber-50' : 'border-gray-200'}`}>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-semibold text-gray-900 text-sm">{d.name}</span>
+                                                    {d.minAtSetup && <span className="text-xs bg-emerald-900 text-white px-2 py-0.5">Required</span>}
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">{d.description}</p>
+                                            </div>
+                                            <div className="flex items-center space-x-2 ml-3">
+                                                <NumButton type="remove" onClick={() => handleEmployeeChange(type, -1)} disabled={atMin} />
+                                                <span className="text-lg font-mono font-bold w-8 text-center">{employees[type]}</span>
+                                                <NumButton type="add" onClick={() => handleEmployeeChange(type, 1)} disabled={atCap} />
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 text-xs font-mono">
+                                            <span className="border border-gray-300 px-2 py-0.5 text-gray-700">{d.hireCost.toLocaleString()}</span>
+                                            <span className="border border-blue-300 px-2 py-0.5 text-blue-800 bg-blue-50">Cap {d.capacity}</span>
+                                            <span className="border border-purple-300 px-2 py-0.5 text-purple-800 bg-purple-50">Comp {d.competency}</span>
+                                        </div>
+                                        {atCap && <div className="text-xs text-amber-700 mt-2">Max {d.maxAtSetup} at setup. Hire more between rounds.</div>}
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
-                        <p className="text-sm text-gray-500 mt-4">Hiring cost is calculated in your total cost. Salaries will be a recurring cost each round.</p>
                     </div>
                 </div>
             </div>

@@ -1,5 +1,5 @@
-import { ALL_PROJECTS_POOL, GAME_SETTINGS } from '../constants/gameData';
-
+import gameData from '../constants/gameData.js';
+const { ALL_PROJECTS_POOL } = gameData;
 /**
  * Generate projects for a specific round
  * Ensures a mix of simple, medium, and complex projects every round

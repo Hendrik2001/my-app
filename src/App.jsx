@@ -1,28 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Toaster, toast } from 'sonner';
-import {
-    onAuthStateChanged,
-    signInAnonymously,
-    signInWithCustomToken,
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword
-} from 'firebase/auth';
+import { onAuthStateChanged, signInAnonymously, signInWithCustomToken, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, onSnapshot, collection, getDoc, setDoc } from 'firebase/firestore';
-
 import { auth, db } from './firebase/firebase.js';
 import gameData from './constants/gameData.js';
-
-// --- Core Components & Screens ---
 import { LoadingSpinner } from './components/LoadingSpinner.jsx';
-import  LoginScreen  from './features/Login/LoginScreen.jsx';
+import LoginScreen from './features/Login/LoginScreen.jsx';
 import { FirmSetup } from './features/Setup/FirmSetup.jsx';
 import { TeamDashboard } from './features/Dashboard/TeamDashboard.jsx';
 import { AdminDashboard } from './features/Admin/AdminDashboard.jsx';
 import { CentralDashboard } from './features/Central/CentralDashboard.jsx';
 
-// --- Main App Component ---
 export default function App() {
-    // --- State Management ---
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
     const [gameState, setGameState] = useState(null);
@@ -32,221 +21,89 @@ export default function App() {
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    const gameId = "game123"; 
+    const gameId = "game123";
     const gamePath = useMemo(() => `games/${gameId}`, [gameId]);
-    
     const teamId = useMemo(() => userData?.teamId, [userData]);
-    const teamPath = useMemo(() => {
-        if (!teamId) return null;
-        return `${gamePath}/teams/${teamId}`;
-    }, [gamePath, teamId]);
+    const teamPath = useMemo(() => teamId ? `${gamePath}/teams/${teamId}` : null, [gamePath, teamId]);
 
-    // --- 1. Authentication Effect ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+        const unsub = onAuthStateChanged(auth, async (authUser) => {
             if (authUser) {
                 setUser(authUser);
-                const userDocRef = doc(db, "users", authUser.uid);
-                const userDocSnap = await getDoc(userDocRef);
-                if (userDocSnap.exists()) {
-                    setUserData(userDocSnap.data());
-                } else {
-                    setUserData({ role: 'anon' });
-                }
+                const snap = await getDoc(doc(db, "users", authUser.uid));
+                setUserData(snap.exists() ? snap.data() : { role: 'anon' });
             } else {
-                setUser(null);
-                setUserData(null);
+                setUser(null); setUserData(null);
                 /* global __initial_auth_token */
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined'
-                    ? __initial_auth_token
-                    : null;
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (error) {
-                    console.error("Error signing in:", error);
-                    toast.error(`Sign-in failed: ${error.message}`);
-                }
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                try { token ? await signInWithCustomToken(auth, token) : await signInAnonymously(auth); }
+                catch (e) { toast.error(`Sign-in failed: ${e.message}`); }
             }
             setLoading(false);
         });
-        return () => unsubscribe();
+        return () => unsub();
     }, []);
 
-    // --- 2. Real-time Data Listeners Effect ---
     useEffect(() => {
-        if (!user || !gamePath || !userData || userData.role === 'anon') {
-            setLoading(userData === null);
-            return;
-        }
-
+        if (!user || !gamePath || !userData || userData.role === 'anon') { setLoading(userData === null); return; }
         setLoading(true);
         const listeners = [];
-
-        const gameStateRef = doc(db, gamePath);
-        listeners.push(onSnapshot(gameStateRef, (docSnap) => {
-            if (docSnap.exists()) {
-                setGameState(docSnap.data());
-            } else {
-                setGameState(null); 
-            }
-        }, (error) => toast.error(`Error loading game: ${error.message}`)));
-
-        const projectsRef = collection(db, `${gamePath}/projects`);
-        listeners.push(onSnapshot(projectsRef, (querySnapshot) => {
-            setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }, (error) => toast.error(`Error loading projects: ${error.message}`)));
-
+        listeners.push(onSnapshot(doc(db, gamePath), s => setGameState(s.exists() ? s.data() : null), e => toast.error(e.message)));
+        listeners.push(onSnapshot(collection(db, `${gamePath}/projects`), s => setProjects(s.docs.map(d => ({ id: d.id, ...d.data() }))), e => toast.error(e.message)));
         if (userData?.role === 'admin' || userData?.role === 'central') {
-            const allTeamsRef = collection(db, `${gamePath}/teams`);
-            listeners.push(onSnapshot(allTeamsRef, (querySnapshot) => {
-                setAllTeams(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            }, (error) => toast.error(`Error loading teams: ${error.message}`)));
+            listeners.push(onSnapshot(collection(db, `${gamePath}/teams`), s => setAllTeams(s.docs.map(d => ({ id: d.id, ...d.data() }))), e => toast.error(e.message)));
         }
-
         if (userData?.role === 'team' && teamPath) {
-            const teamDocRef = doc(db, teamPath);
-            listeners.push(onSnapshot(teamDocRef, (docSnap) => {
-                if (docSnap.exists()) setTeamData(docSnap.data());
-                else setTeamData(null);
-            }, (error) => toast.error(`Error loading team data: ${error.message}`)));
-
-            const logsRef = collection(db, `${teamPath}/logs`);
-            listeners.push(onSnapshot(logsRef, (querySnapshot) => {
-                const logsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                logsData.sort((a, b) => (b.round || 0) - (a.round || 0));
-                setLogs(logsData);
-            }, (error) => toast.error(`Error loading logs: ${error.message}`)));
+            listeners.push(onSnapshot(doc(db, teamPath), s => setTeamData(s.exists() ? s.data() : null), e => toast.error(e.message)));
+            listeners.push(onSnapshot(collection(db, `${teamPath}/logs`), s => {
+                const d = s.docs.map(d => ({ id: d.id, ...d.data() }));
+                d.sort((a, b) => (b.round || 0) - (a.round || 0));
+                setLogs(d);
+            }, e => toast.error(e.message)));
         }
-
         setLoading(false);
-        return () => {
-            listeners.forEach(unsubscribe => unsubscribe());
-        };
+        return () => listeners.forEach(u => u());
     }, [user, userData, gamePath, teamPath]);
 
-    // --- 3. Auth Functions ---
     const handleLogin = async (email, password) => {
-        try {
-            await signInWithEmailAndPassword(auth, email, password);
-            toast.success("Login successful!");
-        } catch (error) {
-            console.error(error);
-            toast.error(`Login failed: ${error.message}`);
-            throw error;
-        }
+        try { await signInWithEmailAndPassword(auth, email, password); toast.success("Login successful."); }
+        catch (e) { toast.error(`Login failed: ${e.message}`); throw e; }
     };
-
     const handleSignup = async (email, password, teamName) => {
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            const userDocRef = doc(db, 'users', userCredential.user.uid);
-            await setDoc(userDocRef, {
-                email: email,
-                teamName: teamName,
-                role: 'team',
-                teamId: userCredential.user.uid
-            });
-
-            const teamDocRef = doc(db, gamePath, 'teams', userCredential.user.uid);
-            await setDoc(teamDocRef, {
-                teamName: teamName,
-                money: 0,
-                needsSetup: true
-            });
-            toast.success("Firm created successfully!");
-        } catch (error) {
-            console.error(error);
-            toast.error(`Signup failed: ${error.message}`);
-            throw error;
-        }
+            const cred = await createUserWithEmailAndPassword(auth, email, password);
+            await setDoc(doc(db, 'users', cred.user.uid), { email, teamName, role: 'team', teamId: cred.user.uid });
+            await setDoc(doc(db, gamePath, 'teams', cred.user.uid), { teamName, money: 0, needsSetup: true });
+            toast.success("Firm created.");
+        } catch (e) { toast.error(`Signup failed: ${e.message}`); throw e; }
     };
-
     const handleSetView = async (view) => {
         try {
-            if (view === 'admin') {
-                await signInWithEmailAndPassword(auth, 'admin@game.com', 'admin100');
-            } else if (view === 'central') {
-                await signInWithEmailAndPassword(auth, 'central@game.com', 'central100');
-            }
-        } catch (error)
-        {
-            console.error(error);
-            toast.error(`Could not log in as ${view}: ${error.message}`);
-        }
+            if (view === 'admin') await signInWithEmailAndPassword(auth, 'admin@game.com', 'admin100');
+            else if (view === 'central') await signInWithEmailAndPassword(auth, 'central@game.com', 'central100');
+        } catch (e) { toast.error(`Could not log in as ${view}: ${e.message}`); }
     };
 
-    // --- 4. Render Logic ---
-    if (loading || !userData) {
-        return <LoadingSpinner />;
-    }
-    
-    if (userData.role === 'anon') {
-        return (
-            <>
-                <Toaster position="bottom-right" richColors />
-                <LoginScreen
-                    onLogin={handleLogin}
-                    onSignup={handleSignup}
-                    onSetView={handleSetView}
-                />
-            </>
-        );
-    }
+    if (loading || !userData) return <LoadingSpinner />;
+    if (userData.role === 'anon') return (<><Toaster position="bottom-right" richColors /><LoginScreen onLogin={handleLogin} onSignup={handleSignup} onSetView={handleSetView} /></>);
 
     const { role } = userData;
-    const currentProjects = projects.filter(p => p.round === gameState?.currentRound);
+    const currentProjects = projects.filter(p => {
+        if (p.rounds && Array.isArray(p.rounds)) return p.rounds.includes(gameState?.currentRound);
+        return p.round === gameState?.currentRound;
+    });
 
     return (
         <>
             <Toaster position="bottom-right" richColors />
-            
-            {role === 'admin' && (
-                <AdminDashboard 
-                    gamePath={gamePath} // We pass gamePath here
-                    gameState={gameState}
-                    allTeams={allTeams}
-                    projects={projects}
-                />
-            )}
-            
-            {role === 'central' && (
-                <CentralDashboard 
-                    gameState={gameState} 
-                    allTeams={allTeams} 
-                />
-            )}
-
+            {role === 'admin' && <AdminDashboard gamePath={gamePath} gameState={gameState} allTeams={allTeams} projects={projects} />}
+            {role === 'central' && <CentralDashboard gameState={gameState} allTeams={allTeams} />}
             {role === 'team' && (
-                <>
-                    {(!teamData || teamData.needsSetup) ? (
-                        <FirmSetup 
-                            teamId={teamId}
-                            teamName={userData.teamName}
-                            gamePath={gamePath}
-                        />
-                    ) : (
-                        <TeamDashboard 
-                            teamPath={teamPath}
-                            teamData={teamData}
-                            gameState={gameState}
-                            projects={currentProjects}
-                            logs={logs}
-                        />
-                    )}
-                </>
+                (!teamData || teamData.needsSetup)
+                    ? <FirmSetup teamId={teamId} teamName={userData.teamName} gamePath={gamePath} />
+                    : <TeamDashboard teamPath={teamPath} teamId={teamId} teamData={teamData} gameState={gameState} projects={currentProjects} logs={logs} />
             )}
-            
-            {(!role || role === 'guest') && (
-                <LoginScreen 
-                    onLogin={handleLogin}
-                    onSignup={handleSignup}
-                    onSetView={handleSetView}
-                />
-            )}
+            {(!role || role === 'guest') && <LoginScreen onLogin={handleLogin} onSignup={handleSignup} onSetView={handleSetView} />}
         </>
     );
 }
