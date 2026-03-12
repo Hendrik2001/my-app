@@ -4,6 +4,7 @@ import { AdminGameState } from './AdminGameState.jsx';
 import { AdminProjectCreator } from './AdminProjectCreator.jsx';
 import { AdminTeamManager } from './AdminTeamManager.jsx';
 import { AdminProjectList } from './AdminProjectList.jsx';
+import { EventPanel } from './EventPanel.jsx';
 
 export const AdminDashboard = ({ gamePath, gameState, allTeams, projects }) => {
 
@@ -21,6 +22,7 @@ export const AdminDashboard = ({ gamePath, gameState, allTeams, projects }) => {
 
                 {gameState && (
                     <>
+                        <EventPanel gamePath={gamePath} gameState={gameState} allTeams={allTeams} />
                         <AdminProjectCreator
                             gamePath={gamePath}
                             currentRound={gameState.currentRound}

@@ -1,5 +1,6 @@
 import gameData from '../constants/gameData.js';
 const { FORMULA_CONSTANTS, SETUP_DATA } = gameData;
+const HARD_LEVERAGE_CAP = 8;
 
 export function calculateTotalCapacity(team) {
     let total = 0;
@@ -7,6 +8,16 @@ export function calculateTotalCapacity(team) {
         const d = SETUP_DATA.employees[type];
         if (d) total += (team.employees[type] || 0) * d.capacity;
     });
+    // Office capacity bonus
+    const officeKey = team.config?.office;
+    if (officeKey && SETUP_DATA.office[officeKey]) {
+        total += SETUP_DATA.office[officeKey].capacityBoost || 0;
+    }
+    // AI upgrade capacity bonus (cumulative across all owned levels)
+    const aiLevel = team.upgrades?.ai || 0;
+    for (let i = 0; i < aiLevel; i++) {
+        total += gameData.UPGRADES.ai.levels[i].capacityBoost || 0;
+    }
     return total;
 }
 
@@ -21,13 +32,31 @@ export function calculateBaseCompetency(team) {
 
 export function calculateActualCompetency(team) {
     // Competency is not affected by productivity -- it's a separate axis
-    return calculateBaseCompetency(team);
+    let base = calculateBaseCompetency(team);
+    // Tech stack competency bonus
+    const techKey = team.config?.tech;
+    if (techKey && SETUP_DATA.tech[techKey]) {
+        base += SETUP_DATA.tech[techKey].competencyBoost || 0;
+    }
+    return base;
 }
 
 export function calculateLeverageRatio(team) {
-    const partners = team.employees?.partners || 1;
-    const juniors = team.employees?.juniors || 0;
-    return juniors / partners;
+    const partners = (team.employees?.partners || 0) + (team.employees?.seniors || 0);
+    const juniors = (team.employees?.juniors || 0) + (team.employees?.mediors || 0);
+    return partners > 0 ? juniors / partners : juniors > 0 ? 99 : 0;
+}
+
+export function isAboveHardLeverageCap(team) {
+    return calculateLeverageRatio(team) >= HARD_LEVERAGE_CAP;
+}
+
+export function getLeverageWarning(team) {
+    const ratio = calculateLeverageRatio(team);
+    if (ratio >= HARD_LEVERAGE_CAP) return { level: 'danger', message: `Leverage ${ratio.toFixed(0)}:1 — at hard cap! Hire senior staff.` };
+    if (ratio >= 7) return { level: 'warning', message: `Leverage ${ratio.toFixed(0)}:1 — extreme leverage! Quality on complex projects will be severely impacted.` };
+    if (ratio > FORMULA_CONSTANTS.MAX_ACCEPTABLE_LEVERAGE) return { level: 'warning', message: `Leverage ${ratio.toFixed(0)}:1 — project quality will suffer.` };
+    return null;
 }
 
 // ── PRODUCTIVITY COST REDUCTION ──
@@ -81,7 +110,7 @@ export function calculateProjectSuccessChance(team, project, burnoutPenalty = 0)
     const actualComp = calculateActualCompetency(team);
     let successChance = (actualComp / requiredComp) * SUCCESS_BASE;
     const leverage = calculateLeverageRatio(team);
-    if (leverage > MAX_ACCEPTABLE_LEVERAGE) {
+    if (leverage > MAX_ACCEPTABLE_LEVERAGE && project.complexity >= 40) {
         successChance *= Math.pow(LEVERAGE_QUALITY_MULTIPLIER, leverage - MAX_ACCEPTABLE_LEVERAGE);
     }
     if (burnoutPenalty > 0) successChance *= (1 - burnoutPenalty);
@@ -116,6 +145,7 @@ export function selectBidWinners(allBids, currentProjects, allTeams) {
     for (const [projectId, bids] of Object.entries(projectBids)) {
         const project = currentProjects.find(p => p.id === projectId);
         if (!project) continue;
+        const slots = project.slots || 1;
         const scored = bids.map(bid => {
             const team = allTeams.find(t => t.id === bid.teamId);
             if (!team) return null;
@@ -123,12 +153,17 @@ export function selectBidWinners(allBids, currentProjects, allTeams) {
             return { ...s, teamName: bid.teamName, won: false, lossReasons: [] };
         }).filter(Boolean);
         scored.sort((a, b) => b.totalScore - a.totalScore);
-        if (scored.length > 0) {
-            scored[0].won = true;
-            winners[projectId] = scored[0];
-            for (let i = 1; i < scored.length; i++) {
-                scored[i].lossReasons = determineLossReasons(scored[i].breakdown, scored[0].breakdown);
-            }
+        const winnerCount = Math.min(slots, scored.length);
+        const projectWinners = [];
+        for (let i = 0; i < winnerCount; i++) {
+            scored[i].won = true;
+            projectWinners.push(scored[i]);
+        }
+        if (projectWinners.length > 0) {
+            winners[projectId] = projectWinners;
+        }
+        for (let i = winnerCount; i < scored.length; i++) {
+            scored[i].lossReasons = determineLossReasons(scored[i].breakdown, scored[0].breakdown);
         }
         results[projectId] = scored;
     }

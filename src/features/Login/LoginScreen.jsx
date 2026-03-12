@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { Briefcase, Eye, Settings } from 'lucide-react';
 
 const LoginScreen = ({ onLogin, onSignup, onSetView }) => {
-    const [email, setEmail] = useState('');
+    const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
-    const [teamName, setTeamName] = useState('');
     const [isSignup, setIsSignup] = useState(false);
     const [error, setError] = useState(null);
 
@@ -13,13 +12,13 @@ const LoginScreen = ({ onLogin, onSignup, onSetView }) => {
         setError(null);
         try {
             if (isSignup) {
-                if (!teamName) {
+                if (!identifier) {
                     setError("Please enter a Team Name to sign up.");
                     return;
                 }
-                await onSignup(email, password, teamName);
+                await onSignup(null, password, identifier);
             } else {
-                await onLogin(email, password);
+                await onLogin(identifier, password);
             }
         } catch (err) {
             setError(err.message);
@@ -43,21 +42,11 @@ const LoginScreen = ({ onLogin, onSignup, onSetView }) => {
                 <p className="text-center text-slate-muted mb-6">Welcome to the simulation</p>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    {isSignup && (
-                        <input
-                            type="text"
-                            placeholder="Your Team Name"
-                            value={teamName}
-                            onChange={(e) => setTeamName(e.target.value)}
-                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-evergreen focus:border-transparent transition-all"
-                            required
-                        />
-                    )}
                     <input
-                        type="email"
-                        placeholder="Email (e.g., team1@game.com)"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        type="text"
+                        placeholder="Team Name"
+                        value={identifier}
+                        onChange={(e) => setIdentifier(e.target.value)}
                         className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-evergreen focus:border-transparent transition-all"
                         required
                     />

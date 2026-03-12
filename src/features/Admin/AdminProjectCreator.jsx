@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 export const AdminProjectCreator = ({ gamePath, currentRound }) => {
     const [form, setForm] = useState({
         name: "New Project", complexity: 50, capacityCost: 20,
-        estimatedCost: 100000, hiddenMarketPrice: 150000, rounds: [currentRound || 1],
+        estimatedCost: 100000, hiddenMarketPrice: 150000, slots: 1, rounds: [currentRound || 1],
     });
     const [isLoading, setIsLoading] = useState(false);
 
@@ -32,7 +32,7 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
         try {
             await addDoc(collection(db, gamePath, 'projects'), { ...form });
             toast.success(`Project created for round(s) ${form.rounds.join(', ')}.`);
-            setForm({ name: "New Project", complexity: 50, capacityCost: 20, estimatedCost: 100000, hiddenMarketPrice: 150000, rounds: [currentRound || 1] });
+            setForm({ name: "New Project", complexity: 50, capacityCost: 20, estimatedCost: 100000, hiddenMarketPrice: 150000, slots: 1, rounds: [currentRound || 1] });
         } catch (err) { toast.error(`Failed: ${err.message}`); }
         setIsLoading(false);
     };
@@ -43,6 +43,7 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
         { name: 'capacityCost', label: 'Capacity Cost', type: 'number' },
         { name: 'estimatedCost', label: 'Estimated Cost', type: 'number' },
         { name: 'hiddenMarketPrice', label: 'Market Price', type: 'number' },
+        { name: 'slots', label: 'Winner Slots', type: 'number' },
     ];
 
     return (
@@ -63,10 +64,9 @@ export const AdminProjectCreator = ({ gamePath, currentRound }) => {
                     <div className="flex gap-1">
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(r => (
                             <button key={r} type="button" onClick={() => toggleRound(r)}
-                                className={`w-8 h-8 text-sm font-mono font-bold border transition-all ${
-                                    form.rounds.includes(r) ? 'bg-emerald-900 text-white border-emerald-900'
-                                    : 'bg-white text-gray-400 border-gray-300 hover:border-emerald-600 hover:text-emerald-700'
-                                }`}>{r}</button>
+                                className={`w-8 h-8 text-sm font-mono font-bold border transition-all ${form.rounds.includes(r) ? 'bg-emerald-900 text-white border-emerald-900'
+                                        : 'bg-white text-gray-400 border-gray-300 hover:border-emerald-600 hover:text-emerald-700'
+                                    }`}>{r}</button>
                         ))}
                     </div>
                 </div>

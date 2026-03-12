@@ -17,6 +17,8 @@ export const SetupChoiceCard = ({ title, options, selectedId, onSelect }) => (
                         <div className="flex flex-wrap gap-2 mt-2">
                             {opt.prodBoost > 0 && <span className="text-xs border border-amber-300 text-amber-800 px-2 py-0.5 bg-amber-50">+{opt.prodBoost} Productivity</span>}
                             {opt.clientBoost > 0 && <span className="text-xs border border-blue-300 text-blue-800 px-2 py-0.5 bg-blue-50">+{opt.clientBoost} Client Sat.</span>}
+                            {opt.capacityBoost > 0 && <span className="text-xs border border-indigo-300 text-indigo-800 px-2 py-0.5 bg-indigo-50">+{opt.capacityBoost} Capacity</span>}
+                            {opt.competencyBoost > 0 && <span className="text-xs border border-purple-300 text-purple-800 px-2 py-0.5 bg-purple-50">+{opt.competencyBoost} Competency</span>}
                         </div>
                     </button>
                 );

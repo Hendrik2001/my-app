@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase.js';
 import gameData from '../../constants/gameData.js';
-import { getProductivityDiscount, calculateGruntWorkRate } from '../../utils/gameCalculations.js';
+import { getProductivityDiscount, calculateGruntWorkRate, calculateLeverageRatio, calculateTotalCapacity, calculateActualCompetency } from '../../utils/gameCalculations.js';
 import { NumButton } from '../../components/NumButton.jsx';
 import { SetupChoiceCard } from '../../components/SetupChoiceCard.jsx';
 import { toast } from 'sonner';
@@ -19,20 +19,23 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
     const computed = useMemo(() => {
         const od = gameData.SETUP_DATA.office[office];
         const td = gameData.SETUP_DATA.tech[tech];
-        let empCost = 0, capacity = 0, competency = 0;
+        let empCost = 0;
         for (const [type, count] of Object.entries(employees)) {
             const d = gameData.SETUP_DATA.employees[type];
             empCost += (d?.hireCost || 0) * count;
-            capacity += (d?.capacity || 0) * count;
-            competency += (d?.competency || 0) * count;
         }
+        // Pass a mock team so the calc functions apply office/tech bonuses correctly
+        const mockTeam = { employees, config: { office, tech }, upgrades: {} };
+        const capacity = calculateTotalCapacity(mockTeam);
+        const competency = calculateActualCompetency(mockTeam);
         const totalCost = (od?.cost || 0) + (td?.cost || 0) + empCost;
         const remaining = gameData.STARTING_CAPITAL - totalCost;
         const productivity = 0 + (td?.prodBoost || 0);
         const clientSat = 0 + (od?.clientBoost || 0);
         const discount = getProductivityDiscount(productivity);
         const gruntRate = calculateGruntWorkRate(productivity);
-        return { totalCost, remaining, capacity, competency, productivity, clientSat, discount, gruntRate };
+        const leverageRatio = calculateLeverageRatio({ employees });
+        return { totalCost, remaining, capacity, competency, productivity, clientSat, discount, gruntRate, leverageRatio };
     }, [office, tech, employees]);
 
     const handleEmployeeChange = (type, amount) => {
@@ -41,6 +44,15 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
             const nv = Math.max(0, (prev[type] || 0) + amount);
             if (d.minAtSetup && nv < d.minAtSetup) return prev;
             if (d.maxAtSetup !== undefined && nv > d.maxAtSetup) return prev;
+            // Enforce leverage hard cap when adding juniors/mediors
+            if (amount > 0 && (type === 'juniors' || type === 'mediors')) {
+                const testEmployees = { ...prev, [type]: nv };
+                const ratio = calculateLeverageRatio({ employees: testEmployees });
+                if (ratio >= 8) {
+                    toast.error('Leverage cap (8:1) reached. Hire a senior or partner first.');
+                    return prev;
+                }
+            }
             return { ...prev, [type]: nv };
         });
     };
@@ -49,8 +61,6 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
         if (computed.remaining < 0) { toast.error("Over budget."); return; }
         setIsSubmitting(true);
         try {
-            const od = gameData.SETUP_DATA.office[office];
-            const td = gameData.SETUP_DATA.tech[tech];
             await updateDoc(doc(db, gamePath, 'teams', teamId), {
                 money: computed.remaining, config: { office, tech }, employees,
                 metrics: { productivity: computed.productivity, clientSatisfaction: computed.clientSat },
@@ -77,44 +87,45 @@ export const FirmSetup = ({ teamId, teamName, gamePath }) => {
                     </div>
                 </div>
 
-                {/* Floating summary */}
-                <div className="fixed bottom-4 right-4 z-10">
-                    <div className="p-5 bg-white border-2 border-emerald-900 shadow-xl w-72">
-                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Budget</div>
-                        <div className="text-lg font-mono text-gray-900">{gameData.STARTING_CAPITAL.toLocaleString()}</div>
-                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-2">Setup Cost</div>
-                        <div className="text-lg font-mono text-red-700">-{computed.totalCost.toLocaleString()}</div>
-                        <div className="border-t border-gray-300 my-2"></div>
-                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Remaining</div>
-                        <div className={`text-2xl font-mono font-bold ${computed.remaining < 0 ? 'text-red-600' : 'text-emerald-800'}`}>
-                            {computed.remaining.toLocaleString()}
+                {/* Sticky bottom summary bar */}
+                <div className="fixed bottom-0 left-0 right-0 z-10 bg-white border-t-2 border-emerald-900 shadow-lg">
+                    <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-6 text-sm">
+                            <div>
+                                <div className="text-xs text-gray-500 uppercase tracking-wider">Budget</div>
+                                <div className="font-mono text-gray-900">{gameData.STARTING_CAPITAL.toLocaleString()}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500 uppercase tracking-wider">Cost</div>
+                                <div className="font-mono text-red-700">-{computed.totalCost.toLocaleString()}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500 uppercase tracking-wider">Remaining</div>
+                                <div className={`font-mono font-bold text-lg ${computed.remaining < 0 ? 'text-red-600' : 'text-emerald-800'}`}>
+                                    {computed.remaining.toLocaleString()}
+                                </div>
+                            </div>
+                            <div className="hidden md:flex gap-3">
+                                <div className="bg-stone-100 px-2 py-1 border border-stone-200 text-center">
+                                    <div className="text-gray-500 uppercase" style={{ fontSize: '10px' }}>Cap</div>
+                                    <div className="font-bold font-mono text-gray-900 text-xs">{computed.capacity}</div>
+                                </div>
+                                <div className="bg-stone-100 px-2 py-1 border border-stone-200 text-center">
+                                    <div className="text-gray-500 uppercase" style={{ fontSize: '10px' }}>Comp</div>
+                                    <div className="font-bold font-mono text-gray-900 text-xs">{computed.competency}</div>
+                                </div>
+                                <div className="bg-amber-50 px-2 py-1 border border-amber-200 text-center">
+                                    <div className="text-amber-700 uppercase" style={{ fontSize: '10px' }}>Prod</div>
+                                    <div className="font-bold font-mono text-amber-900 text-xs">{computed.productivity}</div>
+                                </div>
+                                <div className="bg-blue-50 px-2 py-1 border border-blue-200 text-center">
+                                    <div className="text-blue-700 uppercase" style={{ fontSize: '10px' }}>CSat</div>
+                                    <div className="font-bold font-mono text-blue-900 text-xs">{computed.clientSat}</div>
+                                </div>
+                            </div>
                         </div>
-
-                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                            <div className="bg-stone-100 p-2 text-center border border-stone-200">
-                                <div className="text-gray-500 uppercase" style={{ fontSize: '10px' }}>Capacity</div>
-                                <div className="font-bold font-mono text-gray-900">{computed.capacity}</div>
-                            </div>
-                            <div className="bg-stone-100 p-2 text-center border border-stone-200">
-                                <div className="text-gray-500 uppercase" style={{ fontSize: '10px' }}>Competency</div>
-                                <div className="font-bold font-mono text-gray-900">{computed.competency}</div>
-                            </div>
-                            <div className="bg-amber-50 p-2 text-center border border-amber-200">
-                                <div className="text-amber-700 uppercase" style={{ fontSize: '10px' }}>Productivity</div>
-                                <div className="font-bold font-mono text-amber-900">{computed.productivity}</div>
-                                {computed.discount > 0 && <div className="text-amber-600" style={{ fontSize: '10px' }}>-{computed.discount}% costs</div>}
-                            </div>
-                            <div className="bg-blue-50 p-2 text-center border border-blue-200">
-                                <div className="text-blue-700 uppercase" style={{ fontSize: '10px' }}>Client Sat.</div>
-                                <div className="font-bold font-mono text-blue-900">{computed.clientSat}</div>
-                            </div>
-                        </div>
-                        <div className="mt-2 text-xs text-gray-500 text-center">
-                            Grunt work: ~{(computed.capacity * computed.gruntRate).toLocaleString()}/round if idle
-                        </div>
-
                         <button onClick={handleSubmit} disabled={isSubmitting || computed.remaining < 0}
-                            className="w-full bg-emerald-900 text-white font-semibold py-3 px-6 mt-4 hover:bg-emerald-800 transition disabled:opacity-40 tracking-wide">
+                            className="bg-emerald-900 text-white font-semibold py-3 px-8 hover:bg-emerald-800 transition disabled:opacity-40 tracking-wide whitespace-nowrap">
                             {isSubmitting ? "Saving..." : "ESTABLISH FIRM"}
                         </button>
                     </div>

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { ConfirmBar } from '../../components/ConfirmBar.jsx';
 import {
     calculateTotalCapacity, calculateActualCompetency, calculateProjectCost,
-    calculateProjectSuccessChance, calculateGruntWork, selectBidWinners
+    calculateProjectSuccessChance, calculateGruntWork, selectBidWinners, calculateLeverageRatio
 } from '../../utils/gameCalculations.js';
 import { CheckCircle, Clock } from 'lucide-react';
 
@@ -40,6 +40,9 @@ function calculateRoundResults(team, wonBids, currentProjects) {
         logs.push({ message: `Capacity usage: ${capacityUsed}/${totalCapacity}` });
     }
 
+    let successCount = 0;
+    let failCount = 0;
+
     wonBids.forEach(bid => {
         const project = currentProjects.find(p => p.id === bid.projectId);
         if (!project) return;
@@ -49,18 +52,28 @@ function calculateRoundResults(team, wonBids, currentProjects) {
         const bidAmount = bid.bidPrice || bid.amount || 0;
 
         if (success) {
+            successCount++;
             const projectProfit = bidAmount - cost;
             profit += projectProfit;
-            // Client satisfaction increases on success
-            newMetrics.clientSatisfaction = Math.min(100, (newMetrics.clientSatisfaction || 0) + 3);
-            logs.push({ message: `[OK] Completed "${project.name}" for ${bidAmount.toLocaleString()} (cost: ${cost.toLocaleString()}, profit: ${(bidAmount - cost).toLocaleString()}) | Client Sat +3` });
+            logs.push({ message: `[OK] Completed "${project.name}" for ${bidAmount.toLocaleString()} (cost: ${cost.toLocaleString()}, profit: ${(bidAmount - cost).toLocaleString()})` });
         } else {
+            failCount++;
             const penalty = Math.floor(cost * 0.5);
             profit -= penalty;
             newMetrics.clientSatisfaction = Math.max(0, (newMetrics.clientSatisfaction || 0) - 5);
-            logs.push({ message: `[FAIL] Failed "${project.name}" -- quality issues. Penalty: ${penalty.toLocaleString()} (${(successChance * 100).toFixed(0)}% chance) | Client Sat -5` });
+            const leverageNote = calculateLeverageRatio(team) > FORMULA_CONSTANTS.MAX_ACCEPTABLE_LEVERAGE ? ' | High leverage reduced quality' : '';
+            logs.push({ message: `[FAIL] Failed "${project.name}" -- quality issues. Penalty: ${penalty.toLocaleString()} (${(successChance * 100).toFixed(0)}% chance) | Client Sat -5${leverageNote}` });
         }
     });
+
+    // Client satisfaction bonus: only if ALL won projects succeeded
+    if (successCount > 0 && failCount === 0) {
+        const bonus = successCount * 3;
+        newMetrics.clientSatisfaction = Math.min(100, (newMetrics.clientSatisfaction || 0) + bonus);
+        logs.push({ message: `All ${successCount} project(s) succeeded! Client Sat +${bonus}` });
+    } else if (successCount > 0 && failCount > 0) {
+        logs.push({ message: `${failCount} project(s) failed -- no client satisfaction bonus this round.` });
+    }
 
     // Grunt work
     const gruntIncome = calculateGruntWork(team, capacityUsed);
@@ -162,7 +175,8 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
             for (const team of allTeams) {
                 if (team.needsSetup) continue;
                 const teamRef = doc(db, gamePath, 'teams', team.id);
-                const wonBids = Object.entries(winners).filter(([_, w]) => w.teamId === team.id).map(([pid, w]) => ({ ...w, projectId: pid }));
+                const wonBids = Object.entries(winners)
+                    .flatMap(([pid, ws]) => ws.filter(w => w.teamId === team.id).map(w => ({ ...w, projectId: pid })));
                 const roundResults = calculateRoundResults(team, wonBids, currentProjects);
 
                 const bidLogs = [];
@@ -178,9 +192,13 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
                     if (!p) continue;
                     const myBid = scoredBids.find(b => b.teamId === team.id);
                     if (!myBid || myBid.won) continue;
-                    const winner = scoredBids.find(b => b.won);
-                    const reasons = myBid.lossReasons?.join(' | ') || 'Close competition';
-                    bidLogs.push({ message: `[LOST] "${p.name}" (${myBid.totalScore.toFixed(1)} vs ${winner?.totalScore.toFixed(1)}) -- ${reasons}` });
+                    const topWinner = scoredBids.find(b => b.won);
+                    const scoreData = {
+                        mine: { total: myBid.totalScore, price: myBid.breakdown.priceScore, rep: myBid.breakdown.reputationScore, comp: myBid.breakdown.competencyScore },
+                        winner: topWinner ? { total: topWinner.totalScore, price: topWinner.breakdown.priceScore, rep: topWinner.breakdown.reputationScore, comp: topWinner.breakdown.competencyScore } : null,
+                        reasons: myBid.lossReasons || [],
+                    };
+                    bidLogs.push({ message: `[LOST] "${p.name}" ||SCOREDATA||${JSON.stringify(scoreData)}` });
                 }
 
                 batch.update(teamRef, { money: roundResults.newMoney, metrics: roundResults.newMetrics, profit: roundResults.profit, bids: roundResults.newBids, ready: false });
@@ -255,9 +273,8 @@ export const AdminGameState = ({ gamePath, gameState, allTeams, projects }) => {
                             const isReady = team.ready === true;
                             const bidCount = Object.keys(team.bids || {}).length;
                             return (
-                                <div key={team.id} className={`p-3 border-2 flex items-center gap-3 ${
-                                    isReady ? 'border-emerald-400 bg-emerald-50' : 'border-amber-400 bg-amber-50'
-                                }`}>
+                                <div key={team.id} className={`p-3 border-2 flex items-center gap-3 ${isReady ? 'border-emerald-400 bg-emerald-50' : 'border-amber-400 bg-amber-50'
+                                    }`}>
                                     {isReady ? <CheckCircle size={18} className="text-emerald-700" /> : <Clock size={18} className="text-amber-600" />}
                                     <div className="flex-1 min-w-0">
                                         <div className="font-semibold text-gray-900 text-sm truncate">{team.teamName}</div>

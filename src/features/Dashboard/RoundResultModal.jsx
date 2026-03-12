@@ -4,11 +4,11 @@ import { db } from '../../firebase/firebase.js';
 import { NumButton } from '../../components/NumButton.jsx';
 import { ConfirmBar } from '../../components/ConfirmBar.jsx';
 import gameData from '../../constants/gameData.js';
-import { getProductivityDiscount, calculateGruntWorkRate } from '../../utils/gameCalculations.js';
+import { getProductivityDiscount, calculateGruntWorkRate, calculateLeverageRatio, getLeverageWarning } from '../../utils/gameCalculations.js';
 import { toast } from 'sonner';
 import { Lock, Check, X, ArrowRight, ShoppingCart } from 'lucide-react';
 
-export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData, teamPath, gameState, logs }) => {
+export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, onOpenBidding, teamData, teamPath, gameState, logs, initialStep }) => {
     const prevRound = gameState.currentRound - 1;
     const hasResults = prevRound >= 1 && logs.some(l => l.round === prevRound);
 
@@ -20,12 +20,12 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
 
     useEffect(() => {
         if (isOpen) {
-            setStep(hasResults ? 'results' : 'shop');
+            setStep(initialStep || (hasResults ? 'results' : 'shop'));
             setPendingUpgrades({ ...(teamData.upgrades || { ai: 0, client: 0 }) });
             setLocalEmployees({ ...teamData.employees });
             setConfirmState(null);
         }
-    }, [isOpen, teamData, hasResults]);
+    }, [isOpen, teamData, hasResults, initialStep]);
 
     const currentMoney = teamData.money || 0;
     const roundProfit = teamData.profit || 0;
@@ -45,26 +45,42 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
         return { bidWins, bidLosses, projSuccess, projFail, other };
     }, [logs, prevRound]);
 
-    const { upgradeCost, hiringCost, firingCount, totalSpend, projectedMoney, metricBoosts } = useMemo(() => {
+    const { upgradeCost, hiringCost, firingCount, firingRefund, totalSpend, projectedMoney, metricBoosts } = useMemo(() => {
         let upCost = 0;
-        const boosts = {};
+        const boosts = { capacityBoost: 0, competencyBoost: 0 };
         for (const [cat, targetLvl] of Object.entries(pendingUpgrades)) {
             const data = gameData.UPGRADES[cat];
             if (!data) continue;
             const baseLvl = currentUpgrades[cat] || 0;
-            boosts[data.metric] = 0;
+            boosts[data.metric] = boosts[data.metric] || 0;
             for (let i = baseLvl; i < targetLvl; i++) {
                 upCost += data.levels[i].cost;
                 boosts[data.metric] += data.levels[i].boost;
+                if (data.levels[i].capacityBoost) boosts.capacityBoost += data.levels[i].capacityBoost;
+                if (data.levels[i].competencyBoost) boosts.competencyBoost += data.levels[i].competencyBoost;
             }
         }
-        let hireCost = 0, fired = 0;
+        let hireCost = 0, fired = 0, refund = 0;
         for (const type of ['partners', 'seniors', 'mediors', 'juniors']) {
             const diff = (localEmployees[type] || 0) - (teamData.employees[type] || 0);
-            if (diff > 0) hireCost += diff * gameData.SETUP_DATA.employees[type].hireCost;
-            else if (diff < 0) fired += Math.abs(diff);
+            const empData = gameData.SETUP_DATA.employees[type];
+            if (diff > 0) hireCost += diff * empData.hireCost;
+            else if (diff < 0) {
+                const count = Math.abs(diff);
+                fired += count;
+                refund += count * (empData.hireCost * 0.5);
+            }
         }
-        return { upgradeCost: upCost, hiringCost: hireCost, firingCount: fired, totalSpend: upCost + hireCost, projectedMoney: currentMoney - upCost - hireCost, metricBoosts: boosts };
+        const netSpend = upCost + hireCost - refund;
+        return {
+            upgradeCost: upCost,
+            hiringCost: hireCost,
+            firingCount: fired,
+            firingRefund: refund,
+            totalSpend: netSpend,
+            projectedMoney: currentMoney - netSpend,
+            metricBoosts: boosts
+        };
     }, [pendingUpgrades, localEmployees, teamData, currentUpgrades, currentMoney]);
 
     // Preview what productivity/clientSat would be after upgrades
@@ -82,6 +98,7 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
 
     const previewDiscount = getProductivityDiscount(previewMetrics.productivity);
     const previewGruntRate = calculateGruntWorkRate(previewMetrics.productivity);
+    const hasAnyBoosts = Object.values(metricBoosts).some(v => v > 0);
 
     const buyUpgrade = (cat) => {
         const cur = pendingUpgrades[cat] || 0;
@@ -99,12 +116,21 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
         setLocalEmployees(prev => {
             const nv = Math.max(0, (prev[type] || 0) + amt);
             if (type === 'partners' && nv < 1) return prev;
+            // Enforce leverage hard cap when adding juniors/mediors
+            if (amt > 0 && (type === 'juniors' || type === 'mediors')) {
+                const testEmployees = { ...prev, [type]: nv };
+                const ratio = calculateLeverageRatio({ employees: testEmployees });
+                if (ratio >= 8) {
+                    toast.error('Leverage cap (8:1) reached. Hire a senior or partner first.');
+                    return prev;
+                }
+            }
             return { ...prev, [type]: nv };
         });
     };
 
     const requestSubmit = () => {
-        if (projectedMoney < 0) { toast.error("Not enough cash."); return; }
+        if (totalSpend > 0 && projectedMoney < 0) { toast.error("Not enough cash for these changes."); return; }
         if (totalSpend === 0 && firingCount === 0) {
             // No changes, just confirm directly
             executeSubmit();
@@ -113,12 +139,13 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
         const parts = [];
         if (upgradeCost > 0) parts.push(`Upgrades: ${upgradeCost.toLocaleString()}`);
         if (hiringCost > 0) parts.push(`Hiring: ${hiringCost.toLocaleString()}`);
-        if (firingCount > 0) parts.push(`Firing ${firingCount} employee(s)`);
+        if (firingRefund > 0) parts.push(`Firing Refund: +${firingRefund.toLocaleString()}`);
+
         setConfirmState({
-            variant: firingCount > 0 ? 'danger' : 'info',
+            variant: firingCount > 0 ? 'info' : 'info',
             message: `Confirm strategy: ${parts.join(' + ')}`,
-            detail: `Cash after: ${projectedMoney.toLocaleString()}${firingCount > 0 ? ` | WARNING: Firing penalty not applicable (removed)` : ''}`,
-            confirmLabel: `Spend ${totalSpend.toLocaleString()}`,
+            detail: `Net Change: ${totalSpend.toLocaleString()} | Cash after: ${projectedMoney.toLocaleString()}`,
+            confirmLabel: totalSpend > 0 ? `Spend ${totalSpend.toLocaleString()}` : totalSpend < 0 ? `Receive ${Math.abs(totalSpend).toLocaleString()}` : 'Confirm Changes',
             onConfirm: executeSubmit,
         });
     };
@@ -151,13 +178,14 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
     if (step === 'results') {
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-                <div className="bg-white w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
-                    <div className={`p-6 text-white flex justify-between items-center ${roundProfit >= 0 ? 'bg-emerald-900' : 'bg-red-800'}`}>
-                        <h2 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Georgia, serif' }}>Round {prevRound} Results</h2>
-                        <button onClick={onClose} className="text-white hover:text-gray-200"><X size={20} /></button>
-                    </div>
-                    <div className="p-6 overflow-y-auto flex-1 space-y-5">
-                        <div className="text-center">
+                <div className="bg-white w-full max-w-2xl shadow-2xl relative">
+                    <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={24} /></button>
+                    <div className="p-8">
+                        <div className="text-center mb-8">
+                            <h2 className="text-3xl font-bold text-gray-900 border-b-4 border-emerald-900 inline-block pb-1" style={{ fontFamily: 'Georgia, serif' }}>Round {prevRound} Results</h2>
+                        </div>
+
+                        <div className="text-center mb-6">
                             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Round Profit</div>
                             <div className={`text-4xl font-mono font-bold ${roundProfit >= 0 ? 'text-emerald-800' : 'text-red-700'}`}>
                                 {roundProfit >= 0 ? '+' : ''}{roundProfit.toLocaleString()}
@@ -168,29 +196,110 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
                         </div>
 
                         {(roundLogs.bidWins.length > 0 || roundLogs.bidLosses.length > 0) && (
-                            <div>
+                            <div className="mb-6">
                                 <h3 className="font-bold text-sm text-gray-700 uppercase tracking-wider mb-2">Bid Outcomes</h3>
                                 {roundLogs.bidWins.map((m, i) => <div key={`w${i}`} className="p-3 bg-emerald-50 border-l-4 border-emerald-600 mb-2 text-sm text-gray-800">{m}</div>)}
-                                {roundLogs.bidLosses.map((m, i) => <div key={`l${i}`} className="p-3 bg-red-50 border-l-4 border-red-500 mb-2 text-sm text-gray-800">{m}</div>)}
+                                {roundLogs.bidLosses.map((m, i) => {
+                                    const sep = m.indexOf('||SCOREDATA||');
+                                    if (sep === -1) {
+                                        // Fallback: old format
+                                        return <div key={`l${i}`} className="p-3 bg-red-50 border-l-4 border-red-500 mb-3 text-sm text-gray-800">{m}</div>;
+                                    }
+                                    const projectName = m.slice('[LOST] '.length, sep).replace(/^"|"$/g, '');
+                                    let sd = null;
+                                    try { sd = JSON.parse(m.slice(sep + '||SCOREDATA||'.length)); } catch { }
+                                    const mine = sd?.mine;
+                                    const winner = sd?.winner;
+                                    const reasons = sd?.reasons || [];
+                                    const fmt = (v) => (v || 0).toFixed(1);
+                                    const gapNum = (key) => winner ? ((winner[key] || 0) - (mine?.[key] || 0)) : 0;
+                                    const rows = [
+                                        { label: 'Price Score', key: 'price', desc: '40% weight — how competitive your bid was vs market price' },
+                                        { label: 'Reputation', key: 'rep', desc: '35% weight — your Client Satisfaction score' },
+                                        { label: 'Competency', key: 'comp', desc: '25% weight — team skill vs project complexity' },
+                                    ];
+                                    return (
+                                        <div key={`l${i}`} className="mb-4 border border-red-300 bg-red-50">
+                                            <div className="px-4 py-3 border-b border-red-200 flex items-center gap-2">
+                                                <X size={14} className="text-red-600 flex-shrink-0" />
+                                                <span className="font-semibold text-red-800 text-sm">Lost bid: "{projectName}"</span>
+                                                {mine && winner && (
+                                                    <span className="ml-auto text-xs font-mono text-red-600">Your total: {fmt(mine.total)} vs Winner: {fmt(winner.total)}</span>
+                                                )}
+                                            </div>
+                                            {mine && (
+                                                <div className="p-4">
+                                                    <table className="w-full text-xs">
+                                                        <thead>
+                                                            <tr className="text-gray-500 uppercase tracking-wider">
+                                                                <th className="text-left pb-2 font-semibold">Dimension</th>
+                                                                <th className="text-center pb-2 font-semibold">You</th>
+                                                                {winner && <th className="text-center pb-2 font-semibold">Winner</th>}
+                                                                {winner && <th className="text-center pb-2 font-semibold">Gap</th>}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {rows.map(row => {
+                                                                const g = gapNum(row.key);
+                                                                return (
+                                                                    <tr key={row.key} className="border-t border-red-200">
+                                                                        <td className="py-2 pr-4">
+                                                                            <div className="font-semibold text-gray-800">{row.label}</div>
+                                                                            <div className="text-gray-500 text-[10px]">{row.desc}</div>
+                                                                        </td>
+                                                                        <td className="text-center py-2 font-mono font-bold text-gray-800">{fmt(mine[row.key])}</td>
+                                                                        {winner && <td className="text-center py-2 font-mono font-bold text-gray-800">{fmt(winner[row.key])}</td>}
+                                                                        {winner && (
+                                                                            <td className="text-center py-2">
+                                                                                <span className={`font-mono font-bold px-2 py-0.5 text-xs ${g > 1 ? 'text-red-700 bg-red-200' : g < -1 ? 'text-emerald-700 bg-emerald-100' : 'text-gray-600 bg-gray-100'}`}>
+                                                                                    {g > 0 ? `-${fmt(g)}` : g < 0 ? `+${fmt(Math.abs(g))}` : '—'}
+                                                                                </span>
+                                                                            </td>
+                                                                        )}
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                    {reasons.length > 0 && (
+                                                        <div className="mt-3 pt-3 border-t border-red-200 space-y-1">
+                                                            {reasons.map((r, ri) => (
+                                                                <p key={ri} className="text-xs text-red-800 flex items-start gap-1.5">
+                                                                    <span className="mt-0.5 flex-shrink-0">▸</span> {r}
+                                                                </p>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                         {(roundLogs.projSuccess.length > 0 || roundLogs.projFail.length > 0) && (
-                            <div>
+                            <div className="mb-6">
                                 <h3 className="font-bold text-sm text-gray-700 uppercase tracking-wider mb-2">Project Execution</h3>
                                 {roundLogs.projSuccess.map((m, i) => <div key={`s${i}`} className="p-3 bg-emerald-50 border-l-4 border-emerald-600 mb-2 text-sm text-gray-800">{m}</div>)}
                                 {roundLogs.projFail.map((m, i) => <div key={`f${i}`} className="p-3 bg-red-50 border-l-4 border-red-500 mb-2 text-sm text-gray-800">{m}</div>)}
                             </div>
                         )}
                         {roundLogs.other.length > 0 && (
-                            <div className="bg-stone-50 border border-stone-200 p-4">
+                            <div className="bg-stone-50 border border-stone-200 p-4 mb-6">
                                 {roundLogs.other.map((m, i) => <p key={i} className="text-sm text-gray-600 mb-1">{m}</p>)}
                             </div>
                         )}
 
-                        <button onClick={() => setStep('shop')}
-                            className="w-full bg-emerald-900 text-white font-bold py-3 px-6 hover:bg-emerald-800 transition tracking-wide flex items-center justify-center gap-2">
-                            UPGRADE & HIRE <ArrowRight size={16} />
-                        </button>
+                        <div className="flex flex-col gap-2">
+                            <button onClick={() => { onClose(); if (onOpenBidding) onOpenBidding(); }}
+                                className="w-full bg-emerald-900 text-white font-bold py-3 px-6 hover:bg-emerald-800 transition tracking-wide flex items-center justify-center gap-2">
+                                CONTINUE TO BIDDING <ArrowRight size={16} />
+                            </button>
+                            <button onClick={() => setStep('shop')}
+                                className="text-sm text-gray-500 hover:text-emerald-700 font-medium py-2">
+                                Skip to Upgrades & Hiring
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -207,6 +316,12 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
                         <p className="text-sm text-emerald-200">Invest in upgrades and hire new team members.</p>
                     </div>
                     <div className="flex items-center gap-6">
+                        {hasResults && (
+                            <button onClick={() => setStep('results')}
+                                className="text-sm font-medium text-emerald-300 hover:text-white flex items-center gap-2">
+                                <ArrowRight size={14} className="rotate-180" /> VIEW RESULTS
+                            </button>
+                        )}
                         <div className="text-right">
                             <div className="text-xs text-emerald-300 uppercase tracking-wider">Cash After</div>
                             <div className={`text-lg font-mono font-bold ${projectedMoney < 0 ? 'text-red-400' : 'text-white'}`}>
@@ -221,11 +336,11 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
 
             <div className="max-w-6xl mx-auto px-4 py-6">
                 {/* Preview bar showing impact of pending upgrades */}
-                {(metricBoosts.productivity > 0 || metricBoosts.clientSatisfaction > 0) && (
-                    <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                {hasAnyBoosts && (
+                    <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
                         <div>
                             <div className="text-xs text-indigo-500 uppercase tracking-wider">Productivity After</div>
-                            <div className="font-mono font-bold text-indigo-900">{previewMetrics.productivity}</div>
+                            <div className="font-mono font-bold text-indigo-900">{previewMetrics.productivity} {metricBoosts.productivity > 0 && <span className="text-emerald-700 text-xs">+{metricBoosts.productivity}</span>}</div>
                         </div>
                         <div>
                             <div className="text-xs text-indigo-500 uppercase tracking-wider">Cost Reduction</div>
@@ -233,8 +348,14 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
                         </div>
                         <div>
                             <div className="text-xs text-indigo-500 uppercase tracking-wider">Client Sat After</div>
-                            <div className="font-mono font-bold text-indigo-900">{previewMetrics.clientSatisfaction}</div>
+                            <div className="font-mono font-bold text-indigo-900">{previewMetrics.clientSatisfaction} {metricBoosts.clientSatisfaction > 0 && <span className="text-emerald-700 text-xs">+{metricBoosts.clientSatisfaction}</span>}</div>
                         </div>
+                        {metricBoosts.capacityBoost > 0 && (
+                            <div>
+                                <div className="text-xs text-indigo-500 uppercase tracking-wider">Capacity Boost</div>
+                                <div className="font-mono font-bold text-indigo-900 text-emerald-700">+{metricBoosts.capacityBoost}</div>
+                            </div>
+                        )}
                         <div>
                             <div className="text-xs text-indigo-500 uppercase tracking-wider">Grunt Work Rate</div>
                             <div className="font-mono font-bold text-indigo-900">{previewGruntRate.toLocaleString()}/cap</div>
@@ -269,12 +390,11 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
                                         const canAfford = projectedMoney >= level.cost;
 
                                         return (
-                                            <div key={i} className={`p-4 border-2 transition-all ${
-                                                isOwned ? 'border-emerald-400 bg-emerald-50' :
+                                            <div key={i} className={`p-4 border-2 transition-all ${isOwned ? 'border-emerald-400 bg-emerald-50' :
                                                 isPending ? 'border-blue-400 bg-blue-50' :
-                                                isNext ? 'border-gray-200 bg-white' :
-                                                'border-gray-100 bg-gray-50 opacity-40'
-                                            }`}>
+                                                    isNext ? 'border-gray-200 bg-white' :
+                                                        'border-gray-100 bg-gray-50 opacity-40'
+                                                }`}>
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="flex items-start gap-2 flex-1">
                                                         {isOwned && <Check size={16} className="text-emerald-700 mt-0.5 flex-shrink-0" />}
@@ -285,7 +405,11 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
                                                                 Level {i + 1}: {level.name}
                                                             </div>
                                                             <div className="text-xs text-gray-500 mt-0.5">{level.description}</div>
-                                                            <div className="text-xs font-mono text-gray-500 mt-1">+{level.boost} {gameData.METRIC_INFO[data.metric]?.name}</div>
+                                                            <div className="flex flex-wrap gap-2 mt-1">
+                                                                <span className="text-xs font-mono text-gray-500">+{level.boost} {gameData.METRIC_INFO[data.metric]?.name}</span>
+                                                                {level.capacityBoost > 0 && <span className="text-xs font-mono text-blue-600">+{level.capacityBoost} Capacity</span>}
+                                                                {level.competencyBoost > 0 && <span className="text-xs font-mono text-purple-600">+{level.competencyBoost} Competency</span>}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -322,9 +446,8 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
                         const stats = gameData.SETUP_DATA.employees[type];
                         const diff = (localEmployees[type] || 0) - (teamData.employees[type] || 0);
                         return (
-                            <div key={type} className={`p-4 border-2 bg-white ${
-                                diff > 0 ? 'border-emerald-400' : diff < 0 ? 'border-red-400' : 'border-gray-200'
-                            }`}>
+                            <div key={type} className={`p-4 border-2 bg-white ${diff > 0 ? 'border-emerald-400' : diff < 0 ? 'border-red-400' : 'border-gray-200'
+                                }`}>
                                 <div className="flex items-center justify-between">
                                     <div className="flex-1">
                                         <div className="font-semibold text-gray-900 text-sm">{stats.name}</div>
@@ -366,7 +489,7 @@ export const RoundResultModal = ({ isOpen, onClose, onConfirmStrategy, teamData,
                                 : `No changes. Cash: ${currentMoney.toLocaleString()}`
                             }
                         </div>
-                        <button onClick={requestSubmit} disabled={isSubmitting || projectedMoney < 0}
+                        <button onClick={requestSubmit} disabled={isSubmitting || (totalSpend > 0 && projectedMoney < 0)}
                             className="bg-emerald-900 text-white font-bold py-3 px-8 hover:bg-emerald-800 disabled:opacity-40 transition tracking-wide">
                             {isSubmitting ? "SAVING..." : totalSpend > 0 ? `CONFIRM (Spend ${totalSpend.toLocaleString()})` : "CONFIRM & READY UP"}
                         </button>

@@ -74,6 +74,7 @@ export const AdminProjectList = ({ projects, gamePath }) => {
         { key: 'capacityCost', label: 'Capacity Cost', type: 'number' },
         { key: 'estimatedCost', label: 'Estimated Cost', type: 'number' },
         { key: 'hiddenMarketPrice', label: 'Market Price', type: 'number' },
+        { key: 'slots', label: 'Slots', type: 'number' },
     ];
 
     const RoundBadges = ({ rounds, editable, onToggle }) => (
@@ -82,11 +83,10 @@ export const AdminProjectList = ({ projects, gamePath }) => {
                 const active = rounds.includes(r);
                 return (
                     <button key={r} type="button" onClick={editable ? () => onToggle(r) : undefined}
-                        className={`w-7 h-7 text-xs font-mono font-bold border transition-all ${
-                            active ? 'bg-emerald-900 text-white border-emerald-900'
-                            : editable ? 'bg-white text-gray-400 border-gray-300 hover:border-emerald-600 hover:text-emerald-700'
-                            : 'bg-gray-100 text-gray-300 border-gray-200'
-                        } ${editable ? 'cursor-pointer' : 'cursor-default'}`}>
+                        className={`w-7 h-7 text-xs font-mono font-bold border transition-all ${active ? 'bg-emerald-900 text-white border-emerald-900'
+                                : editable ? 'bg-white text-gray-400 border-gray-300 hover:border-emerald-600 hover:text-emerald-700'
+                                    : 'bg-gray-100 text-gray-300 border-gray-200'
+                            } ${editable ? 'cursor-pointer' : 'cursor-default'}`}>
                         {r}
                     </button>
                 );
@@ -174,6 +174,7 @@ export const AdminProjectList = ({ projects, gamePath }) => {
                                                             <span>Cap: {project.capacityCost}</span>
                                                             <span>Est: {(project.estimatedCost || 0).toLocaleString()}</span>
                                                             <span>Mkt: {(project.hiddenMarketPrice || 0).toLocaleString()}</span>
+                                                            {(project.slots || 1) > 1 && <span className="text-emerald-700">Slots: {project.slots}</span>}
                                                         </div>
                                                         <div className="mt-2"><RoundBadges rounds={projectRounds} editable={false} /></div>
                                                     </div>

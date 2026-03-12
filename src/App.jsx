@@ -65,12 +65,17 @@ export default function App() {
         return () => listeners.forEach(u => u());
     }, [user, userData, gamePath, teamPath]);
 
-    const handleLogin = async (email, password) => {
-        try { await signInWithEmailAndPassword(auth, email, password); toast.success("Login successful."); }
+    const handleLogin = async (teamName, password) => {
+        try {
+            const email = `${teamName.toLowerCase().replace(/\s+/g, '')}@game.com`;
+            await signInWithEmailAndPassword(auth, email, password);
+            toast.success("Login successful.");
+        }
         catch (e) { toast.error(`Login failed: ${e.message}`); throw e; }
     };
-    const handleSignup = async (email, password, teamName) => {
+    const handleSignup = async (dummy, password, teamName) => {
         try {
+            const email = `${teamName.toLowerCase().replace(/\s+/g, '')}@game.com`;
             const cred = await createUserWithEmailAndPassword(auth, email, password);
             await setDoc(doc(db, 'users', cred.user.uid), { email, teamName, role: 'team', teamId: cred.user.uid });
             await setDoc(doc(db, gamePath, 'teams', cred.user.uid), { teamName, money: 0, needsSetup: true });

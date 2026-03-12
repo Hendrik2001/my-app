@@ -12,14 +12,22 @@ import { toast } from 'sonner';
 export const TeamDashboard = ({ teamPath, teamId, teamData, gameState, projects, logs }) => {
     const [showBidding, setShowBidding] = useState(false);
     const [showResultModal, setShowResultModal] = useState(false);
-    const [lastSeenRound, setLastSeenRound] = useState(gameState?.currentRound || 1);
+    const [resultStep, setResultStep] = useState(null); // 'results' or 'shop'
+    const [lastSeenRound, setLastSeenRound] = useState(0);
+    const [lastEventId, setLastEventId] = useState(null);
+    const [eventNotification, setEventNotification] = useState(null);
 
     useEffect(() => {
         if (gameState && gameState.currentRound > lastSeenRound) {
+            setResultStep('results');
             setShowResultModal(true);
             setLastSeenRound(gameState.currentRound);
         }
-    }, [gameState, lastSeenRound]);
+        if (gameState?.activeEvent && gameState.activeEvent.id !== lastEventId) {
+            setEventNotification(gameState.activeEvent);
+            setLastEventId(gameState.activeEvent.id);
+        }
+    }, [gameState, lastSeenRound, lastEventId]);
 
     if (!teamData || !gameState) return <div className="p-8">Loading...</div>;
 
@@ -27,7 +35,9 @@ export const TeamDashboard = ({ teamPath, teamId, teamData, gameState, projects,
     const isReady = teamData.ready === true;
     const bidCount = Object.keys(teamData.bids || {}).length;
 
-    const handleFinishBidding = () => { setShowBidding(false); setShowResultModal(true); };
+    const handleOpenBiddingFromResults = () => { setShowBidding(true); };
+    const handleFinishBidding = () => { setShowBidding(false); setResultStep('shop'); setShowResultModal(true); };
+    const handleOpenResultModal = (step) => { setResultStep(step); setShowResultModal(true); };
     const handleConfirmStrategy = async () => {
         try { await updateDoc(doc(db, teamPath), { ready: true }); toast.success("Strategy confirmed."); }
         catch (err) { toast.error(`Failed: ${err.message}`); }
@@ -38,10 +48,57 @@ export const TeamDashboard = ({ teamPath, teamId, teamData, gameState, projects,
             <BiddingPanel isOpen={showBidding} onClose={() => setShowBidding(false)} onFinishBidding={handleFinishBidding}
                 teamPath={teamPath} teamData={{ ...teamData, teamId }} gameState={gameState} projects={projects} gamePath={fullGamePath} />
             <RoundResultModal isOpen={showResultModal} onClose={() => setShowResultModal(false)} onConfirmStrategy={handleConfirmStrategy}
-                teamData={teamData} teamPath={teamPath} gameState={gameState} logs={logs} />
+                onOpenBidding={handleOpenBiddingFromResults}
+                teamData={teamData} teamPath={teamPath} gameState={gameState} logs={logs} initialStep={resultStep} />
+
+            {/* Event Notification Popup */}
+            {eventNotification && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-70 p-4 animate-in fade-in duration-300">
+                    <div className="bg-white max-w-lg w-full shadow-2xl overflow-hidden border-t-8 border-amber-500">
+                        <div className="p-8">
+                            <div className="flex items-center gap-3 mb-4">
+                                <span className="text-4xl">⚡</span>
+                                <h2 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Georgia, serif' }}>In-Game Event!</h2>
+                            </div>
+                            <div className="mb-6">
+                                <h3 className="text-xl font-bold text-amber-700 mb-1">{eventNotification.name}</h3>
+                                <p className="text-gray-600">{eventNotification.description}</p>
+                            </div>
+                            <div className="bg-amber-50 border border-amber-200 p-4 mb-6">
+                                <div className="text-xs text-amber-600 uppercase font-bold mb-1">Effect</div>
+                                <div className="text-lg font-mono font-bold text-amber-900">{eventNotification.display}</div>
+                                {eventNotification.targetTeamName && (
+                                    <div className="text-sm text-amber-800 mt-2">Targeted Team: <strong>{eventNotification.targetTeamName}</strong></div>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setEventNotification(null)}
+                                className="w-full bg-gray-900 text-white font-bold py-3 px-6 hover:bg-gray-800 transition tracking-wide"
+                            >
+                                ACKNOWLEDGE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="max-w-7xl mx-auto">
                 <TeamHeader teamData={teamData} gameState={gameState} />
+
+                {/* Active event banner */}
+                {gameState.activeEvent && (
+                    <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-400 flex items-start gap-3">
+                        <span className="text-amber-600 text-xl">⚡</span>
+                        <div>
+                            <div className="font-bold text-gray-900" style={{ fontFamily: 'Georgia, serif' }}>{gameState.activeEvent.name}</div>
+                            <div className="text-sm text-gray-600">{gameState.activeEvent.description}</div>
+                            <div className="text-xs font-mono text-amber-800 mt-1">{gameState.activeEvent.display}</div>
+                            {gameState.activeEvent.targetTeamName && (
+                                <div className="text-xs text-amber-700 mt-1">Affects: <strong>{gameState.activeEvent.targetTeamName}</strong></div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* Action Bar */}
                 <div className="mb-6 p-4 bg-white border border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -60,7 +117,7 @@ export const TeamDashboard = ({ teamPath, teamId, teamData, gameState, projects,
                                 {bidCount > 0 ? 'EDIT BIDS' : 'OPEN BIDDING'}
                             </button>
                         )}
-                        <button onClick={() => setShowResultModal(true)}
+                        <button onClick={() => handleOpenResultModal(isReady ? 'results' : 'shop')}
                             className="bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 hover:bg-gray-50 transition text-sm">
                             {isReady ? 'View Strategy' : 'Upgrades & Hiring'}
                         </button>

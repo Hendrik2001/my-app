@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase.js';
 import gameData from '../../constants/gameData.js';
-import { calculateActualCompetency, calculateTotalCapacity, calculateProjectCost, getProductivityDiscount, calculateGruntWorkRate } from '../../utils/gameCalculations.js';
+import { calculateActualCompetency, calculateTotalCapacity, calculateProjectCost, getProductivityDiscount, calculateGruntWorkRate, getLeverageWarning } from '../../utils/gameCalculations.js';
 import { toast } from 'sonner';
 import { X, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { ConfirmBar } from '../../components/ConfirmBar.jsx';
@@ -17,6 +17,7 @@ export const BiddingPanel = ({ isOpen, onClose, onFinishBidding, teamPath, teamD
     const productivity = teamData.metrics?.productivity || 0;
     const discount = getProductivityDiscount(productivity);
     const gruntRate = calculateGruntWorkRate(productivity);
+    const leverageWarning = getLeverageWarning(teamData);
     const existingBids = teamData.bids || {};
 
     const committedCapacity = useMemo(() => {
@@ -42,8 +43,10 @@ export const BiddingPanel = ({ isOpen, onClose, onFinishBidding, teamPath, teamD
 
     const requestPlaceBid = (project) => {
         const amt = bids[project.id];
+        const maxBid = (project.hiddenMarketPrice || project.estimatedCost * 1.5) * 2;
         if (!amt || amt <= 0) { toast.error("Enter a valid bid."); return; }
         if (amt <= project.estimatedCost) { toast.error("Bid must exceed estimated cost."); return; }
+        if (amt > maxBid) { toast.error(`Bid cannot exceed ${maxBid.toLocaleString()}.`); return; }
         if (!gamePath) { toast.error("Game path undefined."); return; }
 
         const newCap = committedCapacity + project.capacityCost;
@@ -134,6 +137,16 @@ export const BiddingPanel = ({ isOpen, onClose, onFinishBidding, teamPath, teamD
                 </div>
             )}
 
+            {/* Leverage warning */}
+            {leverageWarning && (
+                <div className="max-w-6xl mx-auto px-4 mt-4">
+                    <div className={`p-3 text-sm font-semibold flex items-center gap-2 ${leverageWarning.level === 'danger' ? 'bg-red-100 border border-red-300 text-red-800' : 'bg-amber-100 border border-amber-300 text-amber-800'
+                        }`}>
+                        <AlertTriangle size={16} /> {leverageWarning.message}
+                    </div>
+                </div>
+            )}
+
             {/* Grunt work info */}
             {capacityRemaining > 0 && Object.keys(existingBids).length > 0 && (
                 <div className="max-w-6xl mx-auto px-4 mt-4">
@@ -158,12 +171,11 @@ export const BiddingPanel = ({ isOpen, onClose, onFinishBidding, teamPath, teamD
                         const isConfirming = confirmState?.type === 'bid' && confirmState?.projectId === project.id;
 
                         return (
-                            <div key={project.id} className={`p-5 border-2 transition-all ${
-                                hasBid ? 'border-emerald-600 bg-emerald-50' :
+                            <div key={project.id} className={`p-5 border-2 transition-all ${hasBid ? 'border-emerald-600 bg-emerald-50' :
                                 isLocked ? 'border-gray-200 bg-gray-50 opacity-50' :
-                                wouldOverload ? 'border-amber-400 bg-amber-50' :
-                                'border-gray-200 bg-white hover:border-emerald-700'
-                            }`}>
+                                    wouldOverload ? 'border-amber-400 bg-amber-50' :
+                                        'border-gray-200 bg-white hover:border-emerald-700'
+                                }`}>
                                 <div className="flex justify-between items-start mb-3">
                                     <div>
                                         <div className="flex items-center gap-2">
@@ -177,6 +189,11 @@ export const BiddingPanel = ({ isOpen, onClose, onFinishBidding, teamPath, teamD
                                     </div>
                                     <span className={`px-2 py-0.5 text-xs font-bold border ${tierColor}`}>{tierLabel} {project.complexity}</span>
                                 </div>
+                                {(project.slots || 1) > 1 && (
+                                    <div className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 mb-2">
+                                        {project.slots} winner slots available
+                                    </div>
+                                )}
 
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mb-3">
                                     <div><span className="text-gray-500">Capacity: </span><span className={`font-mono font-semibold ${wouldOverload ? 'text-amber-700' : 'text-gray-800'}`}>{project.capacityCost}</span></div>
@@ -199,6 +216,7 @@ export const BiddingPanel = ({ isOpen, onClose, onFinishBidding, teamPath, teamD
                                 {canBid && !hasBid && !isConfirming && (
                                     <div className="flex gap-2 mt-3">
                                         <input type="number" placeholder={`Min ${(project.estimatedCost + 1).toLocaleString()}`}
+                                            max={(project.hiddenMarketPrice || project.estimatedCost * 1.5) * 2}
                                             className="flex-1 p-2 border border-gray-300 text-sm font-mono"
                                             value={bids[project.id] || ''} onChange={(e) => handleBidChange(project.id, e.target.value)} />
                                         <button onClick={() => requestPlaceBid(project)} disabled={isSubmitting === project.id}
